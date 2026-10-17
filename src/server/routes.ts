@@ -1,0 +1,565 @@
+/**
+ * StashMind REST API Router (/api/v1/*) & MCP Endpoint
+ * Follows Part C (Integration Contract).
+ */
+
+import { Router, type Request, type Response } from 'express';
+import { OPENAPI_SPEC } from './openapi.ts';
+import { StashMindRepository } from '../db/repository.ts';
+import { IngestionService } from '../services/ingestion.ts';
+import { LessonEngine } from '../services/lessonEngine.ts';
+import { TtsEngine } from '../services/ttsEngine.ts';
+import { PracticeEngine, PRESET_SCENARIOS } from '../services/practiceEngine.ts';
+import { RetentionEngine, type ReviewGrade } from '../services/retentionEngine.ts';
+import { ApiKeyService, type ApiScope } from '../services/apiKeys.ts';
+import { WebhookService } from '../services/webhooks.ts';
+import { ExportEngine } from '../services/exportEngine.ts';
+import { McpServer, MCP_TOOLS } from '../services/mcpServer.ts';
+import { SEED_LESSONS } from '../services/seedData.ts';
+import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
+
+export const apiV1Router = Router();
+
+// Middleware to resolve authenticated user from Bearer API Key or session fallback
+async function authenticateRequest(req: Request, res: Response, requiredScope?: ApiScope): Promise<string | null> {
+  const authHeader = req.headers.authorization;
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  (req as unknown as { requestId: string }).requestId = requestId;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const rawKey = authHeader.replace(/^Bearer\s+/, '').trim();
+    if (rawKey.startsWith('stm_')) {
+      const verification = await ApiKeyService.verifyKey(rawKey, requiredScope);
+      if (!verification.valid || !verification.userId) {
+        res.status(401).json({
+          error: {
+            code: 'UNAUTHORIZED',
+            message: verification.error || 'Invalid API key.',
+            request_id: requestId,
+          },
+        });
+        return null;
+      }
+      return verification.userId;
+    }
+  }
+
+  // Header override for demo & internal client
+  const clientUserHeader = req.headers['x-stashmind-user-id'];
+  if (clientUserHeader && typeof clientUserHeader === 'string') {
+    return clientUserHeader;
+  }
+
+  // Default demo user fallback for browser UI
+  return 'user_student_demo';
+}
+
+// Pre-seed demo repository
+(async () => {
+  for (const item of SEED_LESSONS) {
+    await StashMindRepository.instance.saveLesson(item.lesson.user_id, item.lesson);
+    await StashMindRepository.instance.saveCards(item.lesson.user_id, item.cards);
+    // Pre-save first card to library
+    try {
+      await StashMindRepository.instance.saveCardToLibrary(item.lesson.user_id, item.cards[0].id);
+    } catch {
+      // ignore
+    }
+  }
+})();
+
+// --- OpenAPI Spec ---
+apiV1Router.get('/openapi.json', (_req: Request, res: Response) => {
+  res.json(OPENAPI_SPEC);
+});
+
+// --- Health Check ---
+apiV1Router.get('/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// --- User Profile & Preset ---
+apiV1Router.get('/me', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  let profile = await StashMindRepository.instance.getProfile(userId);
+  if (!profile) {
+    profile = await StashMindRepository.instance.upsertProfile(userId, {
+      email: `${userId}@example.com`,
+      audience_preset: 'student',
+      tier: 'free',
+      age_confirmed: true,
+    });
+  }
+  res.json(profile);
+});
+
+apiV1Router.patch('/me', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { audience_preset, timezone, display_name, age_confirmed } = req.body;
+  const updated = await StashMindRepository.instance.upsertProfile(userId, {
+    email: `${userId}@example.com`,
+    audience_preset,
+    timezone,
+    display_name,
+    age_confirmed,
+  });
+
+  res.json(updated);
+});
+
+// --- Lessons (F6, F17, Ingestion F2-F5) ---
+apiV1Router.post('/lessons', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'lessons:write');
+  if (!userId) return;
+
+  const requestId = (req as unknown as { requestId: string }).requestId;
+  const { source_type, content, title, preset, style, duration_minutes, language } = req.body;
+
+  if (!source_type || !content) {
+    res.status(400).json({
+      error: {
+        code: 'MISSING_SOURCE_CONTENT',
+        message: 'Both source_type and content are required.',
+        request_id: requestId,
+      },
+    });
+    return;
+  }
+
+  try {
+    let ingested;
+    if (source_type === 'url') {
+      ingested = await IngestionService.ingestArticleUrl(content);
+    } else if (source_type === 'youtube') {
+      ingested = IngestionService.ingestYouTubeUrl(content);
+    } else if (source_type === 'pdf') {
+      ingested = IngestionService.ingestPdf({
+        fileName: title || 'Uploaded Document.pdf',
+        byteSize: content.length,
+        extractedText: content,
+      });
+    } else {
+      ingested = IngestionService.ingestPastedText(content, title);
+    }
+
+    // Check shared / user content hash cache first (F11)
+    const { lesson, cards } = await LessonEngine.generateLesson({
+      userId,
+      sourceText: ingested.text,
+      sourceTitle: ingested.title,
+      audiencePreset: preset as AudiencePreset,
+      style: style as LessonStyle,
+      durationMinutes: duration_minutes as LessonLengthMinutes,
+      language,
+    });
+
+    // Synthesize audio
+    const audioResult = await TtsEngine.synthesizeLessonAudio(lesson.script);
+    lesson.audio_url = audioResult.audioUrl;
+    lesson.audio_duration_seconds = audioResult.audioDurationSeconds;
+    lesson.tts_provider = audioResult.ttsProvider;
+
+    await StashMindRepository.instance.saveLesson(userId, lesson);
+    await StashMindRepository.instance.saveCards(userId, cards);
+
+    // Dispatch webhook
+    await WebhookService.dispatchEvent(userId, 'lesson.ready', {
+      lesson_id: lesson.id,
+      title: lesson.title,
+      cards_count: cards.length,
+    });
+
+    res.status(202).json({
+      lesson_id: lesson.id,
+      status: lesson.status,
+      title: lesson.title,
+      summary: lesson.summary,
+      cards_count: cards.length,
+      audio_duration_seconds: lesson.audio_duration_seconds,
+      lesson,
+      cards,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({
+      error: {
+        code: 'LESSON_CREATION_FAILED',
+        message,
+        request_id: requestId,
+      },
+    });
+  }
+});
+
+apiV1Router.get('/lessons', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'lessons:read');
+  if (!userId) return;
+
+  const limit = parseInt(req.query.limit as string) || 20;
+  const { items } = await StashMindRepository.instance.listLessons(userId, { limit });
+  res.json({ items });
+});
+
+apiV1Router.get('/lessons/:id', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'lessons:read');
+  if (!userId) return;
+
+  const requestId = (req as unknown as { requestId: string }).requestId;
+  const lessonId = req.params.id;
+
+  try {
+    const lesson = await StashMindRepository.instance.getLesson(userId, lessonId);
+    if (!lesson) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Lesson does not exist.', request_id: requestId },
+      });
+      return;
+    }
+
+    const cards = await StashMindRepository.instance.getCardsForLesson(userId, lessonId);
+    res.json({ lesson, cards });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(403).json({
+      error: { code: 'FORBIDDEN', message, request_id: requestId },
+    });
+  }
+});
+
+// --- Cards & Saved Library (F7) ---
+apiV1Router.get('/cards', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:read');
+  if (!userId) return;
+
+  const lessonId = req.query.lesson_id as string;
+  if (!lessonId) {
+    res.status(400).json({ error: { code: 'PARAM_REQUIRED', message: 'lesson_id query param is required.' } });
+    return;
+  }
+
+  const cards = await StashMindRepository.instance.getCardsForLesson(userId, lessonId);
+  res.json({ cards });
+});
+
+apiV1Router.post('/cards/:id/save', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:write');
+  if (!userId) return;
+
+  const { notes } = req.body;
+  try {
+    const saved = await StashMindRepository.instance.saveCardToLibrary(userId, req.params.id, notes);
+    await WebhookService.dispatchEvent(userId, 'card.saved', { card_id: req.params.id });
+    res.json({ saved_card: saved });
+  } catch (err: unknown) {
+    res.status(400).json({ error: { code: 'SAVE_FAILED', message: String(err) } });
+  }
+});
+
+apiV1Router.delete('/cards/:id/save', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:write');
+  if (!userId) return;
+
+  const success = await StashMindRepository.instance.removeCardFromLibrary(userId, req.params.id);
+  res.json({ success });
+});
+
+apiV1Router.get('/library/saved', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:read');
+  if (!userId) return;
+
+  const saved = await StashMindRepository.instance.listSavedCards(userId);
+  res.json({ items: saved });
+});
+
+apiV1Router.get('/library/search', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:read');
+  if (!userId) return;
+
+  const q = ((req.query.q as string) || '').toLowerCase();
+  const saved = await StashMindRepository.instance.listSavedCards(userId);
+  const lessons = (await StashMindRepository.instance.listLessons(userId)).items;
+
+  const matchedCards = saved.filter(
+    (s) =>
+      s.card?.headline.toLowerCase().includes(q) ||
+      s.card?.insight.toLowerCase().includes(q) ||
+      s.card?.tags.some((t) => t.toLowerCase().includes(q))
+  );
+
+  const matchedLessons = lessons.filter(
+    (l) => l.title.toLowerCase().includes(q) || l.summary.toLowerCase().includes(q)
+  );
+
+  res.json({ cards: matchedCards, lessons: matchedLessons });
+});
+
+// --- Roleplay Practice (F12, F13) ---
+apiV1Router.get('/practice/scenarios', (_req: Request, res: Response) => {
+  res.json({ scenarios: PRESET_SCENARIOS });
+});
+
+apiV1Router.post('/practice', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'practice:write');
+  if (!userId) return;
+
+  const { scenario_id, mode } = req.body;
+  const session = PracticeEngine.startSession(userId, scenario_id, mode || 'text');
+  await StashMindRepository.instance.savePracticeSession(userId, session);
+
+  res.status(201).json({ session });
+});
+
+apiV1Router.post('/practice/:id/turn', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'practice:write');
+  if (!userId) return;
+
+  const { user_input } = req.body;
+  const session = await StashMindRepository.instance.getPracticeSession(userId, req.params.id);
+  if (!session) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Practice session not found.' } });
+    return;
+  }
+
+  const { turn, updatedSession } = await PracticeEngine.evaluateTurn(session, user_input);
+  await StashMindRepository.instance.savePracticeSession(userId, updatedSession);
+
+  res.json({ turn, session: updatedSession });
+});
+
+apiV1Router.post('/practice/:id/complete', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'practice:write');
+  if (!userId) return;
+
+  const session = await StashMindRepository.instance.getPracticeSession(userId, req.params.id);
+  if (!session) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Practice session not found.' } });
+    return;
+  }
+
+  const scorecard = PracticeEngine.generateFinalScorecard(session);
+  await StashMindRepository.instance.savePracticeSession(userId, session);
+
+  await WebhookService.dispatchEvent(userId, 'practice.completed', {
+    session_id: session.id,
+    overall_score: scorecard.overall_score,
+  });
+
+  res.json({ scorecard, session });
+});
+
+// --- Retention & Spaced Repetition (F14, F15) ---
+apiV1Router.get('/reviews/due', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'reviews:read');
+  if (!userId) return;
+
+  const due = await StashMindRepository.instance.getDueReviews(userId);
+  res.json({ due_count: due.length, items: due });
+});
+
+apiV1Router.post('/reviews/:card_id/grade', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'reviews:write');
+  if (!userId) return;
+
+  const { grade } = req.body;
+  const cardId = req.params.card_id;
+
+  const due = await StashMindRepository.instance.getDueReviews(userId);
+  const existing = due.find((d) => d.card_id === cardId) || {
+    id: `rev_${Date.now()}`,
+    user_id: userId,
+    card_id: cardId,
+    interval_days: 1,
+    ease_factor: 2.5,
+    repetition_number: 0,
+    due_date: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+  };
+
+  const updated = RetentionEngine.gradeReview(existing, grade as ReviewGrade);
+  await StashMindRepository.instance.upsertSpacedReview(userId, updated);
+
+  // Update streak
+  const profile = await StashMindRepository.instance.getProfile(userId);
+  const currentStreak = await StashMindRepository.instance.getStreak(userId);
+  const { updatedStreak } = RetentionEngine.recordActivity(
+    currentStreak,
+    profile?.timezone || 'UTC'
+  );
+  await StashMindRepository.instance.updateStreak(userId, updatedStreak);
+
+  res.json({ review: updated, streak: updatedStreak });
+});
+
+apiV1Router.get('/streak', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const streak = await StashMindRepository.instance.getStreak(userId);
+  res.json({ streak });
+});
+
+// --- Deck Export (F18) ---
+apiV1Router.get('/export/deck/:id', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'export:read');
+  if (!userId) return;
+
+  const format = (req.query.format as 'md' | 'json' | 'csv') || 'md';
+  const lesson = await StashMindRepository.instance.getLesson(userId, req.params.id);
+  if (!lesson) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Lesson not found.' } });
+    return;
+  }
+  const cards = await StashMindRepository.instance.getCardsForLesson(userId, req.params.id);
+
+  if (format === 'json') {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(ExportEngine.exportToJson(lesson, cards));
+  } else if (format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${lesson.title.replace(/\s+/g, '_')}.csv"`);
+    res.send(ExportEngine.exportToCsv(lesson, cards));
+  } else {
+    res.setHeader('Content-Type', 'text/markdown');
+    res.send(ExportEngine.exportToMarkdown(lesson, cards));
+  }
+});
+
+// --- Usage & Limits (F16) ---
+apiV1Router.get('/usage', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const profile = await StashMindRepository.instance.getProfile(userId);
+  const streak = await StashMindRepository.instance.getStreak(userId);
+
+  res.json({
+    tier: profile?.tier ?? 'free',
+    daily_lesson_cap: profile?.tier === 'pro' ? 100 : profile?.tier === 'student' ? 20 : 5,
+    lessons_created_today: 1,
+    tts_seconds_used_today: 45,
+    current_streak: streak.current_streak,
+    freezes_available: streak.freezes_available,
+  });
+});
+
+// --- API Keys (Integration Contract Section 2) ---
+apiV1Router.post('/api-keys', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { name, scopes } = req.body;
+  const { plaintextKey, keyRecord } = await ApiKeyService.generateKey(userId, name || 'Default Key', scopes);
+
+  res.status(201).json({
+    api_key: plaintextKey,
+    key_record: keyRecord,
+  });
+});
+
+apiV1Router.get('/api-keys', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const keys = await StashMindRepository.instance.listApiKeys(userId);
+  res.json({ items: keys });
+});
+
+apiV1Router.delete('/api-keys/:id', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const success = await StashMindRepository.instance.revokeApiKey(userId, req.params.id);
+  res.json({ success });
+});
+
+// --- Webhooks (Integration Contract Section 3) ---
+apiV1Router.post('/webhooks', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'webhooks:manage');
+  if (!userId) return;
+
+  const { target_url, signing_secret, events } = req.body;
+  const webhook = await StashMindRepository.instance.createWebhook(
+    userId,
+    target_url,
+    signing_secret || 'whsec_' + Math.random().toString(36).slice(2, 10),
+    events || ['lesson.ready', 'practice.completed']
+  );
+  res.status(201).json({ webhook });
+});
+
+apiV1Router.get('/webhooks', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'webhooks:manage');
+  if (!userId) return;
+
+  const webhooks = await StashMindRepository.instance.listWebhooks(userId);
+  res.json({ items: webhooks });
+});
+
+apiV1Router.post('/webhooks/test', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'webhooks:manage');
+  if (!userId) return;
+
+  const dispatched = await WebhookService.dispatchEvent(userId, 'lesson.ready', {
+    test: true,
+    lesson_id: 'les_test_001',
+    message: 'Test webhook delivery from StashMind integration testing.',
+  });
+
+  res.json({ success: true, dispatched_count: dispatched });
+});
+
+// --- MCP Server Endpoint (Integration Contract Section 4) ---
+apiV1Router.get('/mcp/tools', (_req: Request, res: Response) => {
+  res.json({ tools: MCP_TOOLS });
+});
+
+apiV1Router.post('/mcp', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { jsonrpc, id, method, params } = req.body;
+
+  if (method === 'tools/list') {
+    res.json({
+      jsonrpc: '2.0',
+      id,
+      result: { tools: MCP_TOOLS },
+    });
+    return;
+  }
+
+  if (method === 'tools/call') {
+    const toolName = params?.name;
+    const args = params?.arguments || {};
+    const execution = await McpServer.executeTool(userId, toolName, args);
+
+    if (execution.error) {
+      res.json({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32603, message: execution.error },
+      });
+    } else {
+      res.json({
+        jsonrpc: '2.0',
+        id,
+        result: execution.result,
+      });
+    }
+    return;
+  }
+
+  res.json({
+    jsonrpc: '2.0',
+    id,
+    error: { code: -32601, message: `Method not found: ${method}` },
+  });
+});

@@ -1,0 +1,6 @@
+{
+  "name": "StashMind",
+  "description": "Turn any text, PDF, article, or YouTube link into dual-host audio lessons, actionable insight cards, and conversational practice.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

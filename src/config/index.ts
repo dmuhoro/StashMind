@@ -104,11 +104,27 @@ export const FEATURE_FLAGS = {
   ENABLE_MCP_SERVER: true,
   ENABLE_WEBHOOKS: true,
   ENABLE_CONTENT_HASH_CACHE: true,
+  ENABLE_MODEL_ROUTER: false, // Tier 2: opt-in
+  ENABLE_LOCAL_TTS: false, // Tier 2: opt-in offline TTS
   DEFAULT_AUDIENCE_PRESET: AUDIENCE_PRESETS.STUDENT,
 } as const;
 
 export const HTTP_CLIENT_HEADERS = {
   USER_AGENT: 'aistudio-build',
+} as const;
+
+export const MODEL_ROUTER = {
+  DEFAULT_PROVIDER: 'gemini' as const,
+  FALLBACK_PROVIDERS: ['ollama'] as const,
+  OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+  OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'gemma3:4b',
+} as const;
+
+export const LOCAL_TTS = {
+  DEFAULT_ENGINE: 'browser' as const,
+  PIPER_BINARY: process.env.PIPER_BINARY || 'piper',
+  PIPER_MODEL: process.env.PIPER_MODEL || '',
+  KOKORO_BASE_URL: process.env.KOKORO_BASE_URL || 'http://localhost:8880',
 } as const;
 
 /**

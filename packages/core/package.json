@@ -1,0 +1,20 @@
+{
+  "name": "@stashmind/core",
+  "version": "1.0.0",
+  "description": "Shared core package for StashMind + EasyTutor merge",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

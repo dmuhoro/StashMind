@@ -109,6 +109,9 @@ export interface Card {
   audio_timestamp_seconds: number;
   card_order: number;
   tags: string[];
+  rating: 'up' | 'down' | null;
+  edited: boolean;
+  edited_at?: string | null;
   created_at: string;
 }
 

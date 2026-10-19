@@ -182,6 +182,9 @@ Generate the complete lesson and insight cards according to the requested schema
       audio_timestamp_seconds: c.audio_timestamp_seconds ?? (index * 45),
       card_order: index + 1,
       tags: c.tags || [preset, style],
+      rating: null,
+      edited: false,
+      edited_at: null,
       created_at: now,
     }));
 

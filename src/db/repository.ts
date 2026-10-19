@@ -205,9 +205,49 @@ export class StashMindRepository {
       if (card.user_id !== currentUserId) {
         throw new Error('RLS_VIOLATION: Cannot insert card with mismatched user_id.');
       }
-      this.store.cards.set(card.id, card);
+      this.store.cards.set(card.id, {
+        ...card,
+        rating: card.rating ?? null,
+        edited: card.edited ?? false,
+        edited_at: card.edited_at ?? null,
+      });
     }
     return cards;
+  }
+
+  async rateCard(currentUserId: string, cardId: string, rating: 'up' | 'down'): Promise<Card> {
+    const card = this.store.cards.get(cardId);
+    if (!card) {
+      throw new Error('NOT_FOUND: Card does not exist.');
+    }
+    if (card.user_id !== currentUserId) {
+      throw new Error('RLS_VIOLATION: Cannot rate another user’s card.');
+    }
+    const updated: Card = { ...card, rating };
+    this.store.cards.set(cardId, updated);
+    return updated;
+  }
+
+  async editCard(
+    currentUserId: string,
+    cardId: string,
+    updates: Partial<Pick<Card, 'headline' | 'insight' | 'actionable_takeaway'>>
+  ): Promise<Card> {
+    const card = this.store.cards.get(cardId);
+    if (!card) {
+      throw new Error('NOT_FOUND: Card does not exist.');
+    }
+    if (card.user_id !== currentUserId) {
+      throw new Error('RLS_VIOLATION: Cannot edit another user’s card.');
+    }
+    const updated: Card = {
+      ...card,
+      ...updates,
+      edited: true,
+      edited_at: new Date().toISOString(),
+    };
+    this.store.cards.set(cardId, updated);
+    return updated;
   }
 
   async getCardsForLesson(currentUserId: string, lessonId: string): Promise<Card[]> {

@@ -484,6 +484,50 @@ apiV1Router.get('/cards', async (req: Request, res: Response) => {
   res.json({ cards });
 });
 
+// --- Card quality controls (Tier 1) ---
+apiV1Router.post('/cards/:id/rate', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:write');
+  if (!userId) return;
+
+  const { rating } = req.body;
+  if (rating !== 'up' && rating !== 'down') {
+    res.status(400).json({ error: { code: 'INVALID_RATING', message: 'rating must be "up" or "down".' } });
+    return;
+  }
+
+  try {
+    const updated = await StashMindRepository.instance.rateCard(userId, req.params.id, rating);
+    await StashMindRepository.instance.logAuditEvent(userId, 'card.rated', 'card', req.params.id, { rating });
+    res.json({ card: updated });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: { code: 'RATE_FAILED', message } });
+  }
+});
+
+apiV1Router.patch('/cards/:id', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'cards:write');
+  if (!userId) return;
+
+  const { headline, insight, actionable_takeaway } = req.body;
+  try {
+    const updated = await StashMindRepository.instance.editCard(userId, req.params.id, {
+      headline,
+      insight,
+      actionable_takeaway,
+    });
+    await StashMindRepository.instance.logAuditEvent(userId, 'card.edited', 'card', req.params.id, {
+      headline,
+      insight,
+      actionable_takeaway,
+    });
+    res.json({ card: updated });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: { code: 'EDIT_FAILED', message } });
+  }
+});
+
 apiV1Router.post('/cards/:id/save', async (req: Request, res: Response) => {
   const userId = await authenticateRequest(req, res, 'cards:write');
   if (!userId) return;

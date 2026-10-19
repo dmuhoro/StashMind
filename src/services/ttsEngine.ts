@@ -19,9 +19,13 @@ export class TtsEngine {
   /**
    * Generates dual-host audio for a script using Gemini 3.8 Flash TTS,
    * with automatic fallback to device-TTS if kill switch is active or API fails.
+   *
+   * @param dataSaver - When true, signals low-bandwidth optimization (client should
+   *   downsample/compress audio for weak mobile connections).
    */
   static async synthesizeLessonAudio(
-    script: HostDialogueLine[]
+    script: HostDialogueLine[],
+    dataSaver = false
   ): Promise<AudioGenerationResult> {
     const totalWords = script.reduce((acc, line) => acc + line.text.split(/\s+/).length, 0);
     const estimatedDurationSeconds = Math.max(10, Math.round((totalWords / 140) * 60));

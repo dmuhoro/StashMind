@@ -21,6 +21,7 @@ export interface Profile {
   timezone: string;
   tier: UserTier;
   age_confirmed: boolean;
+  data_saver: boolean;
   created_at: string;
   updated_at: string;
 }

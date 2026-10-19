@@ -50,6 +50,7 @@ class StashMindStore {
       timezone: 'America/New_York',
       tier: 'student',
       age_confirmed: true,
+      data_saver: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -63,6 +64,7 @@ class StashMindStore {
       timezone: 'UTC',
       tier: 'pro',
       age_confirmed: true,
+      data_saver: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -120,6 +122,7 @@ export class StashMindRepository {
       timezone: data.timezone ?? existing?.timezone ?? 'UTC',
       tier: data.tier ?? existing?.tier ?? 'free',
       age_confirmed: data.age_confirmed ?? existing?.age_confirmed ?? false,
+      data_saver: data.data_saver ?? existing?.data_saver ?? false,
       created_at: existing ? existing.created_at : now,
       updated_at: now,
     };

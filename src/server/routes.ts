@@ -253,6 +253,66 @@ apiV1Router.patch('/me', async (req: Request, res: Response) => {
   res.json(updated);
 });
 
+// --- Data-saver mode (Tier 1: low-bandwidth mobile-first) ---
+apiV1Router.patch('/me/data-saver', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { data_saver } = req.body;
+  if (typeof data_saver !== 'boolean') {
+    res.status(400).json({ error: { code: 'INVALID_VALUE', message: 'data_saver must be a boolean.' } });
+    return;
+  }
+
+  const profile = await StashMindRepository.instance.getProfile(userId);
+  if (!profile) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Profile not found.' } });
+    return;
+  }
+
+  const updated = await StashMindRepository.instance.upsertProfile(userId, {
+    email: profile.email,
+    audience_preset: profile.audience_preset,
+    timezone: profile.timezone,
+    data_saver,
+  });
+
+  res.json({ data_saver: updated.data_saver });
+});
+
+// --- Downloadable lesson audio (Tier 1: data-saver, offline) ---
+apiV1Router.get('/lessons/:id/download', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const lessonId = req.params.id;
+  try {
+    const lesson = await StashMindRepository.instance.getLesson(userId, lessonId);
+    if (!lesson) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Lesson not found.' } });
+      return;
+    }
+
+    if (!lesson.audio_url) {
+      res.status(404).json({ error: { code: 'NO_AUDIO', message: 'Lesson has no audio to download.' } });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Disposition', `attachment; filename="${lesson.title.replace(/\s+/g, '_')}.wav"`);
+    // audio_url is a data:audio/wav;base64,... URL — extract the base64 payload
+    const match = lesson.audio_url.match(/^data:audio\/wav;base64,(.*)$/);
+    if (match) {
+      res.send(Buffer.from(match[1], 'base64'));
+    } else {
+      res.redirect(lesson.audio_url);
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(403).json({ error: { code: 'FORBIDDEN', message, request_id: (req as any).requestId } });
+  }
+});
+
 // --- Lessons (F6, F17, Ingestion F2-F5) ---
 apiV1Router.post('/lessons', async (req: Request, res: Response) => {
   const userId = await authenticateRequest(req, res, 'lessons:write');
@@ -300,7 +360,8 @@ apiV1Router.post('/lessons', async (req: Request, res: Response) => {
     });
 
     // Synthesize audio
-    const audioResult = await TtsEngine.synthesizeLessonAudio(lesson.script);
+    const profile = await StashMindRepository.instance.getProfile(userId);
+    const audioResult = await TtsEngine.synthesizeLessonAudio(lesson.script, profile?.data_saver ?? false);
     lesson.audio_url = audioResult.audioUrl;
     lesson.audio_duration_seconds = audioResult.audioDurationSeconds;
     lesson.tts_provider = audioResult.ttsProvider;

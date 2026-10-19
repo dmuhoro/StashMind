@@ -18,6 +18,7 @@ import { McpServer, MCP_TOOLS } from '../services/mcpServer.ts';
 import { SEED_LESSONS } from '../services/seedData.ts';
 import { handleTelegramUpdate, setWebhook, getMe } from '../services/telegram.ts';
 import { AskSourceService } from '../services/askSource.ts';
+import { StudyModeService } from '../services/studyMode.ts';
 import { signTokenPair, verifyAccessToken, verifyRefreshToken, hashPassword, type TokenPayload } from '../services/auth.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
 
@@ -396,6 +397,40 @@ apiV1Router.post('/lessons', async (req: Request, res: Response) => {
         request_id: requestId,
       },
     });
+  }
+});
+
+apiV1Router.post('/study/session', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'lessons:write');
+  if (!userId) return;
+
+  const { source_text, source_title } = req.body;
+
+  if (!source_text) {
+    res.status(400).json({ error: { code: 'MISSING_SOURCE', message: 'source_text is required.' } });
+    return;
+  }
+
+  try {
+    const session = await StudyModeService.createSession(userId, source_text, source_title || 'Study Session');
+
+    await StashMindRepository.instance.logAuditEvent(userId, 'study.session_created', 'lesson', session.sessionId, {
+      source_title: session.sourceTitle,
+      cards_count: session.cards.length,
+    });
+
+    res.status(201).json({
+      session_id: session.sessionId,
+      source_title: session.sourceTitle,
+      cards_count: session.cards.length,
+      quiz_count: session.quiz.length,
+      anki_csv: session.ankiCsv,
+      cards: session.cards,
+      quiz: session.quiz,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: { code: 'STUDY_FAILED', message, request_id: (req as any).requestId } });
   }
 });
 

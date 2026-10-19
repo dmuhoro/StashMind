@@ -79,7 +79,7 @@ export class IngestionService {
    * Ingests an article from an external URL with SSRF protection (F4).
    */
   static async ingestArticleUrl(rawUrl: string): Promise<IngestionResult> {
-    const validation = SecurityService.validateSafeUrl(rawUrl);
+    const validation = await SecurityService.validateSafeUrl(rawUrl);
     if (!validation.valid || !validation.url) {
       throw new Error(`SSRF_BLOCKED: ${validation.error}`);
     }
@@ -136,8 +136,8 @@ export class IngestionService {
    * Ingests a YouTube video (F5).
    * Validates video ID and extracts/summarizes transcript.
    */
-  static ingestYouTubeUrl(rawUrl: string, sampleTranscriptFallback?: string): IngestionResult {
-    const validation = SecurityService.validateSafeUrl(rawUrl);
+  static async ingestYouTubeUrl(rawUrl: string, sampleTranscriptFallback?: string): Promise<IngestionResult> {
+    const validation = await SecurityService.validateSafeUrl(rawUrl);
     if (!validation.valid || !validation.url) {
       throw new Error(`SSRF_BLOCKED: ${validation.error}`);
     }

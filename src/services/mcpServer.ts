@@ -169,7 +169,7 @@ export class McpServer {
           if (sourceType === 'url') {
             ingested = await IngestionService.ingestArticleUrl(content);
           } else if (sourceType === 'youtube') {
-            ingested = IngestionService.ingestYouTubeUrl(content);
+            ingested = await IngestionService.ingestYouTubeUrl(content);
           } else {
             ingested = IngestionService.ingestPastedText(content, title);
           }

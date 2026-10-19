@@ -2,6 +2,8 @@
  * Security Service: SSRF Protection, URL Validation, and Sanitization
  */
 
+import { lookup } from 'dns/promises';
+
 export class SecurityService {
   private static PRIVATE_IP_PATTERNS = [
     /^127\./, // Loopback
@@ -27,8 +29,9 @@ export class SecurityService {
   /**
    * Validates whether a remote URL is safe to fetch server-side.
    * Throws an error if the URL targets loopback, link-local, cloud metadata, or private networks.
+   * Performs DNS resolution to catch domain names that resolve to private IPs (DNS rebinding protection).
    */
-  static validateSafeUrl(rawUrl: string): { valid: boolean; error?: string; url?: URL } {
+  static async validateSafeUrl(rawUrl: string): Promise<{ valid: boolean; error?: string; url?: URL }> {
     try {
       const parsed = new URL(rawUrl);
 
@@ -44,14 +47,33 @@ export class SecurityService {
         return { valid: false, error: 'Access to loopback or cloud metadata is strictly prohibited.' };
       }
 
-      // 3. Block private and link-local IP addresses
+      // 3. Block private and link-local IP addresses (literal IP in URL)
       for (const pattern of this.PRIVATE_IP_PATTERNS) {
         if (pattern.test(hostname)) {
           return { valid: false, error: 'Access to private or link-local IP addresses is strictly prohibited.' };
         }
       }
 
-      // 4. Block port-based scans to internal non-standard web ports
+      // 4. DNS resolution: resolve hostname to IP and block any private/reserved IP (DNS rebinding protection)
+      const isLiteralIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+      if (!isLiteralIp) {
+        try {
+          const { address: resolvedIp } = await lookup(hostname, { family: 4 });
+          for (const pattern of this.PRIVATE_IP_PATTERNS) {
+            if (pattern.test(resolvedIp)) {
+              return {
+                valid: false,
+                error: `DNS resolution returned private IP ${resolvedIp}; access to private networks is prohibited.`,
+              };
+            }
+          }
+        } catch {
+          // DNS resolution failure: fail closed — do not allow fetching unresolved hosts
+          return { valid: false, error: 'DNS resolution failed; host is not reachable.' };
+        }
+      }
+
+      // 5. Block port-based scans to internal non-standard web ports
       if (parsed.port && !['80', '443', '8080', '8443'].includes(parsed.port)) {
         return { valid: false, error: 'Port not permitted for external source ingestion.' };
       }

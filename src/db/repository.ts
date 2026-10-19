@@ -97,6 +97,13 @@ export class StashMindRepository {
     return this.store.profiles.get(currentUserId) || null;
   }
 
+  async getProfileByEmail(email: string): Promise<Profile | null> {
+    for (const profile of this.store.profiles.values()) {
+      if (profile.email === email) return profile;
+    }
+    return null;
+  }
+
   async upsertProfile(
     currentUserId: string,
     data: Partial<Profile> & { email: string }

@@ -16,20 +16,24 @@ import { WebhookService } from '../services/webhooks.ts';
 import { ExportEngine } from '../services/exportEngine.ts';
 import { McpServer, MCP_TOOLS } from '../services/mcpServer.ts';
 import { SEED_LESSONS } from '../services/seedData.ts';
+import { signTokenPair, verifyAccessToken, verifyRefreshToken, hashPassword, type TokenPayload } from '../services/auth.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
 
 export const apiV1Router = Router();
 
-// Middleware to resolve authenticated user from Bearer API Key or session fallback
+// Middleware to resolve authenticated user from Bearer JWT or API Key.
+// Fail closed: no demo-user fallback. Every request must present valid credentials.
 async function authenticateRequest(req: Request, res: Response, requiredScope?: ApiScope): Promise<string | null> {
   const authHeader = req.headers.authorization;
   const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   (req as unknown as { requestId: string }).requestId = requestId;
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const rawKey = authHeader.replace(/^Bearer\s+/, '').trim();
-    if (rawKey.startsWith('stm_')) {
-      const verification = await ApiKeyService.verifyKey(rawKey, requiredScope);
+    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+
+    // API Key authentication (stm_live_*)
+    if (token.startsWith('stm_')) {
+      const verification = await ApiKeyService.verifyKey(token, requiredScope);
       if (!verification.valid || !verification.userId) {
         res.status(401).json({
           error: {
@@ -42,16 +46,35 @@ async function authenticateRequest(req: Request, res: Response, requiredScope?: 
       }
       return verification.userId;
     }
+
+    // JWT access token authentication
+    try {
+      const payload = verifyAccessToken(token) as TokenPayload;
+      // Scope check for JWT holders: JWT implies lessons:read/write scope
+      if (requiredScope && !['lessons:read', 'lessons:write', 'cards:read', 'cards:write'].includes(requiredScope)) {
+        res.status(403).json({
+          error: { code: 'INSUFFICIENT_SCOPE', message: 'JWT holder lacks required scope.', request_id: requestId },
+        });
+        return null;
+      }
+      return payload.userId;
+    } catch {
+      res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'Invalid or expired access token.', request_id: requestId },
+      });
+      return null;
+    }
   }
 
-  // Header override for demo & internal client
-  const clientUserHeader = req.headers['x-stashmind-user-id'];
-  if (clientUserHeader && typeof clientUserHeader === 'string') {
-    return clientUserHeader;
-  }
-
-  // Default demo user fallback for browser UI
-  return 'user_student_demo';
+  // No credentials provided — fail closed
+  res.status(401).json({
+    error: {
+      code: 'MISSING_CREDENTIALS',
+      message: 'Authentication required. Provide a Bearer API key (stm_live_*) or JWT access token.',
+      request_id: requestId,
+    },
+  });
+  return null;
 }
 
 // Pre-seed demo repository
@@ -80,6 +103,120 @@ apiV1Router.get('/health', (_req: Request, res: Response) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
   });
+});
+
+// --- Auth: Signup ---
+apiV1Router.post('/auth/signup', async (req: Request, res: Response) => {
+  const { email, password, display_name, audience_preset, timezone, age_confirmed } = req.body;
+
+  if (!email || !password) {
+    res.status(400).json({ error: { code: 'MISSING_FIELDS', message: 'Email and password are required.' } });
+    return;
+  }
+
+  // Age gate enforcement (Constitution: 13+ standard, 16+ GDPR)
+  if (age_confirmed !== true) {
+    res.status(403).json({
+      error: { code: 'AGE_GATE_REQUIRED', message: 'You must confirm you are 13+ (16+ under GDPR) to create an account.' },
+    });
+    return;
+  }
+
+  const existing = await StashMindRepository.instance.getProfileByEmail(email);
+  if (existing) {
+    res.status(409).json({ error: { code: 'USER_EXISTS', message: 'An account with this email already exists.' } });
+    return;
+  }
+
+  const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const now = new Date().toISOString();
+
+  const profile = await StashMindRepository.instance.upsertProfile(userId, {
+    email,
+    audience_preset: audience_preset || 'student',
+    timezone: timezone || 'UTC',
+    age_confirmed: true,
+  });
+
+  // Store hashed password on profile (in-memory; Supabase Auth in production)
+  await StashMindRepository.instance.upsertProfile(userId, {
+    ...profile,
+    password_hash: hashPassword(password),
+  } as any);
+
+  const tokens = signTokenPair({
+    userId,
+    email,
+    tier: profile.tier,
+    age_confirmed: true,
+  });
+
+  await StashMindRepository.instance.logAuditEvent(userId, 'auth.signup', 'user', userId, { email });
+
+  res.status(201).json({ user: profile, tokens });
+});
+
+// --- Auth: Login ---
+apiV1Router.post('/auth/login', async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    res.status(400).json({ error: { code: 'MISSING_FIELDS', message: 'Email and password are required.' } });
+    return;
+  }
+
+  const profile = await StashMindRepository.instance.getProfileByEmail(email);
+  if (!profile) {
+    res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
+    return;
+  }
+
+  const storedHash = (profile as any).password_hash;
+  if (!storedHash || storedHash !== hashPassword(password)) {
+    res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
+    return;
+  }
+
+  const tokens = signTokenPair({
+    userId: profile.user_id,
+    email: profile.email,
+    tier: profile.tier,
+    age_confirmed: profile.age_confirmed,
+  });
+
+  await StashMindRepository.instance.logAuditEvent(profile.user_id, 'auth.login', 'user', profile.user_id, { email });
+
+  res.json({ user: profile, tokens });
+});
+
+// --- Auth: Refresh ---
+apiV1Router.post('/auth/refresh', async (req: Request, res: Response) => {
+  const { refresh_token } = req.body;
+
+  if (!refresh_token) {
+    res.status(400).json({ error: { code: 'MISSING_TOKEN', message: 'Refresh token is required.' } });
+    return;
+  }
+
+  try {
+    const { userId } = verifyRefreshToken(refresh_token);
+    const profile = await StashMindRepository.instance.getProfile(userId);
+    if (!profile) {
+      res.status(401).json({ error: { code: 'USER_NOT_FOUND', message: 'User not found.' } });
+      return;
+    }
+
+    const tokens = signTokenPair({
+      userId: profile.user_id,
+      email: profile.email,
+      tier: profile.tier,
+      age_confirmed: profile.age_confirmed,
+    });
+
+    res.json({ tokens });
+  } catch {
+    res.status(401).json({ error: { code: 'INVALID_REFRESH_TOKEN', message: 'Invalid or expired refresh token.' } });
+  }
 });
 
 // --- User Profile & Preset ---
@@ -139,7 +276,7 @@ apiV1Router.post('/lessons', async (req: Request, res: Response) => {
     if (source_type === 'url') {
       ingested = await IngestionService.ingestArticleUrl(content);
     } else if (source_type === 'youtube') {
-      ingested = IngestionService.ingestYouTubeUrl(content);
+      ingested = await IngestionService.ingestYouTubeUrl(content);
     } else if (source_type === 'pdf') {
       ingested = IngestionService.ingestPdf({
         fileName: title || 'Uploaded Document.pdf',

@@ -4,7 +4,7 @@ import { CacheService } from '../src/services/cache.ts';
 import { IngestionService } from '../src/services/ingestion.ts';
 
 describe('Ingestion & SSRF Protection (Requirements F2, F3, F4, F5, F11)', () => {
-  it('should block SSRF attempts to localhost, private IPs, and cloud metadata', () => {
+  it('should block SSRF attempts to localhost, private IPs, and cloud metadata', async () => {
     const maliciousUrls = [
       'http://127.0.0.1:80/admin',
       'http://localhost:3000/api',
@@ -16,13 +16,13 @@ describe('Ingestion & SSRF Protection (Requirements F2, F3, F4, F5, F11)', () =>
     ];
 
     for (const url of maliciousUrls) {
-      const result = SecurityService.validateSafeUrl(url);
+      const result = await SecurityService.validateSafeUrl(url);
       expect(result.valid).toBe(false);
       expect(result.error).toBeDefined();
     }
   });
 
-  it('should allow valid public HTTPS URLs', () => {
+  it('should allow valid public HTTPS URLs', async () => {
     const safeUrls = [
       'https://en.wikipedia.org/wiki/Photosynthesis',
       'https://news.ycombinator.com',
@@ -30,7 +30,7 @@ describe('Ingestion & SSRF Protection (Requirements F2, F3, F4, F5, F11)', () =>
     ];
 
     for (const url of safeUrls) {
-      const result = SecurityService.validateSafeUrl(url);
+      const result = await SecurityService.validateSafeUrl(url);
       expect(result.valid).toBe(true);
     }
   });

@@ -4,6 +4,7 @@
  */
 
 import { StashMindRepository } from '../db/repository.ts';
+import { hmacSha256 } from './crypto.ts';
 
 export type WebhookEventType =
   | 'lesson.created'
@@ -26,15 +27,7 @@ export class WebhookService {
    * Generates HMAC-SHA256 signature for a webhook payload.
    */
   static computeSignature(secret: string, timestamp: string, payloadJson: string): string {
-    const message = `${timestamp}.${payloadJson}`;
-    let hash = 0;
-    for (let i = 0; i < message.length; i++) {
-      const char = message.charCodeAt(i);
-      const secretChar = secret.charCodeAt(i % secret.length);
-      hash = (Math.imul(31, hash) + char ^ secretChar) | 0;
-    }
-    const hex = (hash >>> 0).toString(16).padStart(8, '0');
-    return `sha256=${hex}${hex}${hex}${hex}`;
+    return hmacSha256(secret, `${timestamp}.${payloadJson}`);
   }
 
   /**

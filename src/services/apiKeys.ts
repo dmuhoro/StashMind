@@ -5,6 +5,7 @@
 
 import { StashMindRepository } from '../db/repository.ts';
 import type { ApiKeyRecord } from '../db/types.ts';
+import { sha256 } from './crypto.ts';
 
 export const API_SCOPES = [
   'lessons:read',
@@ -81,11 +82,6 @@ export class ApiKeyService {
   }
 
   static async hashKey(key: string): Promise<string> {
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = (Math.imul(31, hash) + key.charCodeAt(i)) | 0;
-    }
-    const hex = (hash >>> 0).toString(16).padStart(8, '0');
-    return `hash_sha256_${hex}${hex}`;
+    return `sha256_${sha256(key)}`;
   }
 }

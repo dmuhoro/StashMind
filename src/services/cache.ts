@@ -1,6 +1,9 @@
 /**
  * Cache Service: Cryptographic Content-Hashing & Deduplication
+ * Uses real SHA-256 from src/services/crypto.ts
  */
+
+import { sha256 } from './crypto.ts';
 
 export class CacheService {
   /**
@@ -38,19 +41,6 @@ export class CacheService {
       options?.promptVersion ?? 'v1',
     ].join('||');
 
-    // Simple deterministic string hash for browser and node runtimes
-    let hash1 = 0xdeadbeef;
-    let hash2 = 0x41c64e6d;
-    for (let i = 0; i < keyParts.length; i++) {
-      const ch = keyParts.charCodeAt(i);
-      hash1 = Math.imul(hash1 ^ ch, 2654435761);
-      hash2 = Math.imul(hash2 ^ ch, 1597334677);
-    }
-    hash1 = Math.imul(hash1 ^ (hash1 >>> 16), 2246822507) ^ Math.imul(hash2 ^ (hash2 >>> 13), 3266489909);
-    hash2 = Math.imul(hash2 ^ (hash2 >>> 16), 2246822507) ^ Math.imul(hash1 ^ (hash1 >>> 13), 3266489909);
-
-    const hex1 = (hash1 >>> 0).toString(16).padStart(8, '0');
-    const hex2 = (hash2 >>> 0).toString(16).padStart(8, '0');
-    return `sha256_${hex1}${hex2}${hex1}`;
+    return `sha256_${sha256(keyParts)}`;
   }
 }

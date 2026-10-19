@@ -4,13 +4,13 @@
  */
 
 import { GeminiService } from './gemini.ts';
-import { isDailySpendKillSwitchActive } from '../config/index.ts';
+import { isDailySpendKillSwitchActive, TTS_PROVIDER_DUAL_HOST, type TtsProvider } from '../config/index.ts';
 import type { HostDialogueLine } from '../db/types.ts';
 
 export interface AudioGenerationResult {
   audioUrl?: string;
   audioDurationSeconds: number;
-  ttsProvider: 'gemini-3.8-flash-tts' | 'device-tts-fallback';
+  ttsProvider: TtsProvider;
   isFallback: boolean;
   base64Wav?: string;
 }
@@ -47,7 +47,7 @@ export class TtsEngine {
         audioUrl: `data:audio/wav;base64,${result.base64Wav}`,
         base64Wav: result.base64Wav,
         audioDurationSeconds: result.audioSeconds,
-        ttsProvider: 'gemini-3.8-flash-tts',
+        ttsProvider: TTS_PROVIDER_DUAL_HOST,
         isFallback: false,
       };
     } catch {

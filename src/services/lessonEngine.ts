@@ -6,6 +6,7 @@
 import {
   PROMPT_VERSIONS,
   AUDIENCE_PRESETS,
+  TTS_PROVIDER_DUAL_HOST,
   type AudiencePreset,
   type LessonStyle,
   type LessonLengthMinutes,
@@ -162,7 +163,7 @@ Generate the complete lesson and insight cards according to the requested schema
       target_duration_minutes: duration,
       status: 'ready',
       audio_duration_seconds: duration * 60,
-      tts_provider: 'gemini-3.8-flash-tts',
+      tts_provider: TTS_PROVIDER_DUAL_HOST,
       script: generatedData.script,
       sections: generatedData.sections,
       prompt_version: promptVersion,

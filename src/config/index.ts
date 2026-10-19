@@ -38,6 +38,13 @@ export const MODELS = {
 
 export type ModelId = typeof MODELS[keyof typeof MODELS];
 
+/**
+ * TTS provider string used in Lesson.tts_provider and TtsEngine.ttsProvider.
+ * Derived from MODELS.TTS_DUAL_HOST to guarantee a single source of truth.
+ */
+export const TTS_PROVIDER_DUAL_HOST = MODELS.TTS_DUAL_HOST;
+export type TtsProvider = typeof TTS_PROVIDER_DUAL_HOST | 'device-tts-fallback';
+
 export const PROMPT_VERSIONS = {
   LESSON_GENERATOR: '2026-10-v1.0.0',
   CARDS_EXTRACTION: '2026-10-v1.0.0',

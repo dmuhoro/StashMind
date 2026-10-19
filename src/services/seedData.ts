@@ -3,7 +3,7 @@
  * Pre-seeded with grounded insight cards, host dialogue scripts, and audio timestamps.
  */
 
-import { AUDIENCE_PRESETS } from '../config/index.ts';
+import { AUDIENCE_PRESETS, TTS_PROVIDER_DUAL_HOST } from '../config/index.ts';
 import type { Lesson, Card } from '../db/types.ts';
 
 export interface SeedLessonPackage {
@@ -25,7 +25,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       target_duration_minutes: 10,
       status: 'ready',
       audio_duration_seconds: 600,
-      tts_provider: 'gemini-3.8-flash-tts',
+      tts_provider: TTS_PROVIDER_DUAL_HOST,
       sections: [
         { id: 'sec_1', title: 'Glycolysis & Pyruvate Conversion', start_second: 0, end_second: 180, summary: 'Net ATP yield from substrate-level phosphorylation.', source_excerpt: 'Glycolysis yields 2 net ATP and 2 NADH per glucose molecule.' },
         { id: 'sec_2', title: 'The Mitochondrial Matrix Cycle', start_second: 181, end_second: 380, summary: 'Oxaloacetate regeneration and electron carrier reduction.', source_excerpt: 'Acetyl-CoA combines with oxaloacetate to form citrate.' },
@@ -86,7 +86,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       target_duration_minutes: 5,
       status: 'ready',
       audio_duration_seconds: 300,
-      tts_provider: 'gemini-3.8-flash-tts',
+      tts_provider: TTS_PROVIDER_DUAL_HOST,
       sections: [
         { id: 'sec_1', title: 'Recognizing Overlapping Subproblems', start_second: 0, end_second: 120, summary: 'When to upgrade recursion to DP.', source_excerpt: 'Dynamic programming requires optimal substructure and overlapping subproblems.' },
         { id: 'sec_2', title: 'Top-Down Memoization Trade-Offs', start_second: 121, end_second: 210, summary: 'Call-stack overhead vs intuitive recursion.', source_excerpt: 'Memoization caches recursive results in a hash table or array.' },
@@ -132,7 +132,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       target_duration_minutes: 5,
       status: 'ready',
       audio_duration_seconds: 300,
-      tts_provider: 'gemini-3.8-flash-tts',
+      tts_provider: TTS_PROVIDER_DUAL_HOST,
       sections: [
         { id: 'sec_1', title: 'Why Simple Refusal Fails', start_second: 0, end_second: 90, summary: 'Saying no sounds like lack of drive.', source_excerpt: 'Executives interpret "we cannot" as engineering intransigence.' },
         { id: 'sec_2', title: 'The Three-Box Choice Architecture', start_second: 91, end_second: 210, summary: 'Scope, Quality, and Date trade-offs.', source_excerpt: 'Presenting explicit alternatives puts leadership in control of the business risk.' },
@@ -178,7 +178,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       target_duration_minutes: 10,
       status: 'ready',
       audio_duration_seconds: 600,
-      tts_provider: 'gemini-3.8-flash-tts',
+      tts_provider: TTS_PROVIDER_DUAL_HOST,
       sections: [
         { id: 'sec_1', title: 'The Prisoner’s Dilemma Trap', start_second: 0, end_second: 180, summary: 'Defection in one-shot games.', source_excerpt: 'In single encounters, rational self-interest leads both players to defect.' },
         { id: 'sec_2', title: 'The Shadow of the Future', start_second: 181, end_second: 390, summary: 'Repeated interactions shift the equilibrium.', source_excerpt: 'When future interaction is probable, long-term reciprocity outweighs immediate betrayal.' },

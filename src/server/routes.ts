@@ -17,6 +17,7 @@ import { ExportEngine } from '../services/exportEngine.ts';
 import { McpServer, MCP_TOOLS } from '../services/mcpServer.ts';
 import { SEED_LESSONS } from '../services/seedData.ts';
 import { handleTelegramUpdate, setWebhook, getMe } from '../services/telegram.ts';
+import { AskSourceService } from '../services/askSource.ts';
 import { signTokenPair, verifyAccessToken, verifyRefreshToken, hashPassword, type TokenPayload } from '../services/auth.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
 
@@ -430,6 +431,41 @@ apiV1Router.get('/lessons/:id', async (req: Request, res: Response) => {
     res.status(403).json({
       error: { code: 'FORBIDDEN', message, request_id: requestId },
     });
+  }
+});
+
+// --- Ask the Source (Tier 1: chat with citations) ---
+apiV1Router.post('/lessons/:id/ask', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res, 'lessons:read');
+  if (!userId) return;
+
+  const { question } = req.body;
+  const lessonId = req.params.id;
+
+  if (!question || typeof question !== 'string') {
+    res.status(400).json({ error: { code: 'MISSING_QUESTION', message: 'A question is required.' } });
+    return;
+  }
+
+  try {
+    const lesson = await StashMindRepository.instance.getLesson(userId, lessonId);
+    if (!lesson) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Lesson not found.' } });
+      return;
+    }
+
+    const result = await AskSourceService.ask(question, lesson.sections, lesson.title);
+
+    await StashMindRepository.instance.logAuditEvent(userId, 'ask_source', 'lesson', lessonId, {
+      question,
+      confidence: result.confidence,
+      citations_count: result.citations.length,
+    });
+
+    res.json({ question, answer: result.answer, citations: result.citations, confidence: result.confidence });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: { code: 'ASK_FAILED', message, request_id: (req as any).requestId } });
   }
 });
 

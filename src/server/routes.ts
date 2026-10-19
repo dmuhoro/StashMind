@@ -16,6 +16,7 @@ import { WebhookService } from '../services/webhooks.ts';
 import { ExportEngine } from '../services/exportEngine.ts';
 import { McpServer, MCP_TOOLS } from '../services/mcpServer.ts';
 import { SEED_LESSONS } from '../services/seedData.ts';
+import { handleTelegramUpdate, setWebhook, getMe } from '../services/telegram.ts';
 import { signTokenPair, verifyAccessToken, verifyRefreshToken, hashPassword, type TokenPayload } from '../services/auth.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
 
@@ -651,6 +652,28 @@ apiV1Router.post('/webhooks/test', async (req: Request, res: Response) => {
   });
 
   res.json({ success: true, dispatched_count: dispatched });
+});
+
+// --- Telegram Bot Ingestion Webhook (Tier 1) ---
+apiV1Router.post('/webhooks/telegram', async (req: Request, res: Response) => {
+  const update = req.body;
+  const result = await handleTelegramUpdate(update as any);
+  res.json({ ok: result.ok });
+});
+
+apiV1Router.post('/webhooks/telegram/set', async (req: Request, res: Response) => {
+  const { webhook_url } = req.body;
+  if (!webhook_url) {
+    res.status(400).json({ error: { code: 'MISSING_URL', message: 'webhook_url is required.' } });
+    return;
+  }
+  const result = await setWebhook(webhook_url);
+  res.json(result);
+});
+
+apiV1Router.get('/webhooks/telegram/me', async (_req: Request, res: Response) => {
+  const result = await getMe();
+  res.json(result);
 });
 
 // --- MCP Server Endpoint (Integration Contract Section 4) ---

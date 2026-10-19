@@ -19,6 +19,7 @@ import { SEED_LESSONS } from '../services/seedData.ts';
 import { handleTelegramUpdate, setWebhook, getMe } from '../services/telegram.ts';
 import { AskSourceService } from '../services/askSource.ts';
 import { StudyModeService } from '../services/studyMode.ts';
+import { initiateStkPush, verifyMpesaCallback, MPESA_PRICING } from '../services/payments.ts';
 import { signTokenPair, verifyAccessToken, verifyRefreshToken, hashPassword, type TokenPayload } from '../services/auth.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
 
@@ -850,6 +851,57 @@ apiV1Router.post('/webhooks/telegram/set', async (req: Request, res: Response) =
 apiV1Router.get('/webhooks/telegram/me', async (_req: Request, res: Response) => {
   const result = await getMe();
   res.json(result);
+});
+
+// --- M-Pesa Payments (Tier 1: KES pricing, student tier) ---
+apiV1Router.get('/payments/pricing', (_req: Request, res: Response) => {
+  res.json({ tiers: MPESA_PRICING, currency: 'KES' });
+});
+
+apiV1Router.post('/payments/mpesa/stkpush', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { phone_number, amount_kes, account_reference, transaction_desc } = req.body;
+
+  if (!phone_number || !amount_kes) {
+    res.status(400).json({ error: { code: 'MISSING_FIELDS', message: 'phone_number and amount_kes are required.' } });
+    return;
+  }
+
+  const result = await initiateStkPush({
+    phoneNumber: phone_number,
+    amountKes: amount_kes,
+    accountReference: account_reference || `stm_user_${userId}`,
+    transactionDesc: transaction_desc || 'StashMind lesson package',
+  });
+
+  if (result.ok) {
+    const checkoutRequestId = (result.result as { CheckoutRequestID?: string })?.CheckoutRequestID;
+    await StashMindRepository.instance.logAuditEvent(userId, 'payment.stk_push', 'payment', userId, {
+      amount_kes,
+      phone_number,
+      checkout_request_id: checkoutRequestId,
+    });
+    res.json({ ok: true, result: result.result });
+  } else {
+    res.status(502).json({ ok: false, error: result.error || 'M-Pesa STK push failed.' });
+  }
+});
+
+apiV1Router.post('/payments/mpesa/callback', async (req: Request, res: Response) => {
+  const payload = req.body;
+  const verification = verifyMpesaCallback(payload);
+
+  await StashMindRepository.instance.logAuditEvent(null, 'payment.mpesa_callback', 'payment', null, {
+    result_code: verification.resultCode,
+    receipt_number: verification.receiptNumber,
+    phone_number: verification.phoneNumber,
+    amount: verification.amount,
+  });
+
+  // Acknowledge receipt to Daraja (required to stop retries)
+  res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
 });
 
 // --- MCP Server Endpoint (Integration Contract Section 4) ---

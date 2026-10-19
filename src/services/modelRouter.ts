@@ -70,6 +70,7 @@ export class ModelRouter {
 
   private static async viaGemini(request: GenerationRequest): Promise<GenerationResult> {
     const { GeminiService } = await import('./gemini.ts');
+    const { MODELS } = await import('../config/index.ts');
     const response = await GeminiService.generateStructuredJson<unknown>({
       systemInstruction: request.systemInstruction,
       prompt: request.prompt,
@@ -80,7 +81,7 @@ export class ModelRouter {
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
       provider: 'gemini',
-      model: 'gemini-3.8-flash',
+      model: MODELS.FLASH,
     };
   }
 

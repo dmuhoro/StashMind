@@ -6,6 +6,7 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
 import { apiV1Router } from './src/server/routes.ts';
 
 async function bootstrap() {
@@ -16,6 +17,27 @@ async function bootstrap() {
   // Request parsing with generous limit for PDF/text uploads (15MB)
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+  // Global rate limiting: 100 requests per 15 minutes per IP (Constitution: rate-limit all public endpoints)
+  const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per window
+    message: { error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/v1', globalLimiter);
+
+  // Stricter rate limit on AI-backed endpoints: 20 requests per 15 minutes per IP
+  const aiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    message: { error: { code: 'AI_RATE_LIMITED', message: 'AI generation rate limit exceeded. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/v1/lessons', aiLimiter);
+  app.use('/api/v1/mcp', aiLimiter);
 
   // CORS and Request Correlation ID middleware
   app.use((req, res, next) => {

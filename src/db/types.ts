@@ -3,7 +3,7 @@
  * Generated and synchronized with supabase/migrations/20261017000000_stashmind_core_schema.sql
  */
 
-import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
+import type { AudiencePreset, LessonStyle, LessonLengthMinutes, LessonLanguage } from '../config/index.ts';
 
 export type UserTier = 'free' | 'student' | 'pro' | 'team';
 export type SourceType = 'text' | 'pdf' | 'url' | 'youtube';
@@ -86,6 +86,7 @@ export interface Lesson {
   audience_preset: AudiencePreset;
   style: LessonStyle;
   target_duration_minutes: LessonLengthMinutes;
+  language: LessonLanguage;
   status: LessonStatus;
   error_message?: string | null;
   audio_url?: string | null;

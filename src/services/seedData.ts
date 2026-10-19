@@ -3,7 +3,7 @@
  * Pre-seeded with grounded insight cards, host dialogue scripts, and audio timestamps.
  */
 
-import { AUDIENCE_PRESETS, TTS_PROVIDER_DUAL_HOST } from '../config/index.ts';
+import { AUDIENCE_PRESETS, TTS_PROVIDER_DUAL_HOST, LANGUAGES } from '../config/index.ts';
 import type { Lesson, Card } from '../db/types.ts';
 
 export interface SeedLessonPackage {
@@ -23,6 +23,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       audience_preset: AUDIENCE_PRESETS.STUDENT,
       style: 'tldr',
       target_duration_minutes: 10,
+      language: LANGUAGES.ENGLISH,
       status: 'ready',
       audio_duration_seconds: 600,
       tts_provider: TTS_PROVIDER_DUAL_HOST,
@@ -90,6 +91,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       audience_preset: AUDIENCE_PRESETS.STUDENT,
       style: 'debate',
       target_duration_minutes: 5,
+      language: LANGUAGES.ENGLISH,
       status: 'ready',
       audio_duration_seconds: 300,
       tts_provider: TTS_PROVIDER_DUAL_HOST,
@@ -139,6 +141,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       audience_preset: AUDIENCE_PRESETS.PROFESSIONAL,
       style: 'tldr',
       target_duration_minutes: 5,
+      language: LANGUAGES.ENGLISH,
       status: 'ready',
       audio_duration_seconds: 300,
       tts_provider: TTS_PROVIDER_DUAL_HOST,
@@ -188,6 +191,7 @@ export const SEED_LESSONS: SeedLessonPackage[] = [
       audience_preset: AUDIENCE_PRESETS.LEARNER,
       style: 'eli5',
       target_duration_minutes: 10,
+      language: LANGUAGES.ENGLISH,
       status: 'ready',
       audio_duration_seconds: 600,
       tts_provider: TTS_PROVIDER_DUAL_HOST,

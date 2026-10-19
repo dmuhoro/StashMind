@@ -73,6 +73,13 @@ export type LessonStyle = typeof LESSON_STYLES[keyof typeof LESSON_STYLES];
 export const LESSON_LENGTHS = [5, 10, 20] as const;
 export type LessonLengthMinutes = typeof LESSON_LENGTHS[number];
 
+export const LANGUAGES = {
+  ENGLISH: 'en',
+  SWAHILI: 'sw',
+} as const;
+
+export type LessonLanguage = typeof LANGUAGES[keyof typeof LANGUAGES];
+
 export const QUOTAS = {
   DAILY_LESSONS: {
     free: 5,

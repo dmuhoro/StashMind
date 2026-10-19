@@ -7,9 +7,11 @@ import {
   PROMPT_VERSIONS,
   AUDIENCE_PRESETS,
   TTS_PROVIDER_DUAL_HOST,
+  LANGUAGES,
   type AudiencePreset,
   type LessonStyle,
   type LessonLengthMinutes,
+  type LessonLanguage,
 } from '../config/index.ts';
 import { GeminiService } from './gemini.ts';
 import { CacheService } from './cache.ts';
@@ -23,7 +25,7 @@ export interface GenerateLessonOptions {
   audiencePreset?: AudiencePreset;
   style?: LessonStyle;
   durationMinutes?: LessonLengthMinutes;
-  language?: string;
+  language?: LessonLanguage;
 }
 
 export class LessonEngine {
@@ -37,6 +39,7 @@ export class LessonEngine {
     const preset = options.audiencePreset || AUDIENCE_PRESETS.STUDENT;
     const style = options.style || 'tldr';
     const duration = options.durationMinutes || 10;
+    const language = options.language || LANGUAGES.ENGLISH;
     const promptVersion = PROMPT_VERSIONS.LESSON_GENERATOR;
 
     const contentHash = CacheService.computeContentHash(options.sourceText, {
@@ -44,11 +47,13 @@ export class LessonEngine {
       style,
       durationMinutes: duration,
       promptVersion,
+      language,
     });
 
     // Build preset guidance
     const presetInstructions = this.getPresetInstructions(preset);
     const styleInstructions = this.getStyleInstructions(style);
+    const languageInstructions = this.getLanguageInstructions(language);
 
     const systemInstruction = `You are the lead instructional designer for StashMind.
 You produce dual-host conversational audio lessons and grounded insight decks.
@@ -58,12 +63,14 @@ Hosts:
 Use conversational backchanneling (e.g. "|yeah|", "|mhm|", "|right|") and occasional natural vocal bursts (e.g. "<laugh>", "<breath>").
 CRITICAL GROUNDING RULE: Every single card and host statement must be strictly grounded in the provided source text. Never invent quotes, facts, or citations. Each card MUST have an explicit "source_section_pointer" pointing to the relevant section.
 ${presetInstructions}
-${styleInstructions}`;
+${styleInstructions}
+${languageInstructions}`;
 
     const prompt = `SOURCE TITLE: ${options.sourceTitle}
 TARGET DURATION: ${duration} minutes
 STYLE: ${style}
 AUDIENCE PRESET: ${preset}
+LANGUAGE: ${language}
 
 SOURCE TEXT:
 ${options.sourceText.slice(0, 15000)}
@@ -145,7 +152,7 @@ Generate the complete lesson and insight cards according to the requested schema
       generatedData = response.data;
     } catch {
       // Robust deterministic fallback when Gemini API key is unset or in test environment
-      generatedData = this.createFallbackStructuredLesson(options.sourceTitle, options.sourceText, preset, style, duration);
+      generatedData = this.createFallbackStructuredLesson(options.sourceTitle, options.sourceText, preset, style, duration, language);
     }
 
     const lessonId = `les_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -160,6 +167,7 @@ Generate the complete lesson and insight cards according to the requested schema
       summary: generatedData.summary || `Audio briefing on ${options.sourceTitle}`,
       audience_preset: preset,
       style,
+      language,
       target_duration_minutes: duration,
       status: 'ready',
       audio_duration_seconds: duration * 60,
@@ -219,6 +227,16 @@ Generate the complete lesson and insight cards according to the requested schema
     }
   }
 
+  private static getLanguageInstructions(language: LessonLanguage): string {
+    switch (language) {
+      case LANGUAGES.SWAHILI:
+        return 'LANGUAGE (Swahili / Kiswahili): Generate the entire lesson, host dialogue, and insight cards in Swahili. Use natural, conversational Kiswahili appropriate for East African learners. If a concept has no direct Swahili equivalent, explain it using simple Swahili with the English term in parentheses.';
+      case LANGUAGES.ENGLISH:
+      default:
+        return '';
+    }
+  }
+
   /**
    * Deterministic grounding fallback generator
    */
@@ -227,7 +245,8 @@ Generate the complete lesson and insight cards according to the requested schema
     sourceText: string,
     preset: AudiencePreset,
     style: LessonStyle,
-    durationMinutes: number
+    durationMinutes: number,
+    language: LessonLanguage = LANGUAGES.ENGLISH
   ) {
     const cleanSnippet = sourceText.slice(0, 300).trim();
     const sections: LessonSectionMarker[] = [

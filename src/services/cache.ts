@@ -30,6 +30,7 @@ export class CacheService {
       style?: string;
       durationMinutes?: number;
       promptVersion?: string;
+      language?: string;
     }
   ): string {
     const normalized = this.normalizeText(sourceText);
@@ -39,6 +40,7 @@ export class CacheService {
       options?.style ?? 'default',
       options?.durationMinutes?.toString() ?? '10',
       options?.promptVersion ?? 'v1',
+      options?.language ?? 'en',
     ].join('||');
 
     return `sha256_${sha256(keyParts)}`;

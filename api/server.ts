@@ -8,7 +8,7 @@
 
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { sign, verify } from 'jsonwebtoken';
+import JWT from 'jsonwebtoken';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 
 /*───────────────────────── in-memory repository (Map-based) ─────────────────────────*/
@@ -133,10 +133,10 @@ function startSession(userId: string, scenarioId: string, mode: string): Practic
 /*───────────────────────── auth ─────────────────────────*/
 const JWT_SECRET = process.env.JWT_ACCESS_SECRET || 'dev-secret-change-me';
 function signToken(userId: string, email: string, tier: Tier) {
-  return sign({ userId, email, tier }, JWT_SECRET, { expiresIn: '15m' });
+  return JWT.sign({ userId, email, tier }, JWT_SECRET, { expiresIn: '15m' });
 }
 function verifyToken(token: string): { userId: string; email: string; tier: Tier } | null {
-  try { return verify(token, JWT_SECRET) as any; } catch { return null; }
+  try { return JWT.verify(token, JWT_SECRET) as any; } catch { return null; }
 }
 
 /*───────────────────────── express app ─────────────────────────*/
@@ -234,7 +234,7 @@ app.post('/api/v1/lessons', async (req, res) => {
     };
     const cards: Card[] = [
       {
-        id: `card_${Date.now()}_1`, lesson_id: lesson.id, user_id,
+        id: `card_${Date.now()}_1`, lesson_id: lesson.id, user_id: userId,
         headline: 'Core Concept', insight: 'Primary takeaway from the source material.',
         actionable_takeaway: 'Apply this concept in your practice sessions.',
         source_section_pointer: 'Section 1', audio_timestamp_seconds: 30,

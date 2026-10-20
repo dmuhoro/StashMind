@@ -1,0 +1,512 @@
+{
+  "$schema": "https://appwrite.io/schemas/config.json",
+  "project": {
+    "name": "StashMind",
+    "description": "Headless audio learning engine on Appwrite"
+  },
+  "database": {
+    "id": "stashmind_db",
+    "name": "StashMind Database"
+  },
+  "tables": [
+    {
+      "id": "profiles",
+      "name": "profiles",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "email", "type": "string", "required": true, "size": 255},
+        {"key": "display_name", "type": "string", "required": false, "size": 255},
+        {"key": "audience_preset", "type": "string", "required": true, "size": 32},
+        {"key": "timezone", "type": "string", "required": true, "size": 64},
+        {"key": "tier", "type": "string", "required": true, "size": 32},
+        {"key": "age_confirmed", "type": "boolean", "required": true},
+        {"key": "data_saver", "type": "boolean", "required": false, "default": false},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "unique", "attributes": ["user_id"]},
+        {"key": "email", "type": "unique", "attributes": ["email"]}
+      ],
+      "permissions": [
+        {"role": "any", "actions": ["read"]},
+        {"role": "user", "actions": ["create", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "sources",
+      "name": "sources",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "workspace_id", "type": "string", "required": false, "size": 255},
+        {"key": "source_type", "type": "string", "required": true, "size": 32},
+        {"key": "title", "type": "string", "required": true, "size": 255},
+        {"key": "original_url", "type": "string", "required": false, "size": 2048},
+        {"key": "content_hash", "type": "string", "required": true, "size": 64},
+        {"key": "char_count", "type": "integer", "required": true},
+        {"key": "is_private", "type": "boolean", "required": true, "default": true},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "content_hash", "type": "unique", "attributes": ["content_hash"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "lessons",
+      "name": "lessons",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "workspace_id", "type": "string", "required": false, "size": 255},
+        {"key": "source_id", "type": "string", "required": false, "size": 255},
+        {"key": "content_hash", "type": "string", "required": true, "size": 64},
+        {"key": "title", "type": "string", "required": true, "size": 255},
+        {"key": "summary", "type": "string", "required": true, "size": 4096},
+        {"key": "audience_preset", "type": "string", "required": true, "size": 32},
+        {"key": "style", "type": "string", "required": true, "size": 32},
+        {"key": "language", "type": "string", "required": true, "size": 16},
+        {"key": "target_duration_minutes", "type": "integer", "required": true},
+        {"key": "status", "type": "string", "required": true, "size": 32},
+        {"key": "error_message", "type": "string", "required": false, "size": 1024},
+        {"key": "audio_url", "type": "string", "required": false, "size": 2048},
+        {"key": "audio_duration_seconds", "type": "integer", "required": false},
+        {"key": "tts_provider", "type": "string", "required": true, "size": 64},
+        {"key": "prompt_version", "type": "string", "required": true, "size": 64},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "content_hash", "type": "unique", "attributes": ["content_hash"]},
+        {"key": "status", "type": "key", "attributes": ["status"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "cards",
+      "name": "cards",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "lesson_id", "type": "string", "required": true, "size": 255},
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "headline", "type": "string", "required": true, "size": 255},
+        {"key": "insight", "type": "string", "required": true, "size": 4096},
+        {"key": "actionable_takeaway", "type": "string", "required": true, "size": 4096},
+        {"key": "source_section_pointer", "type": "string", "required": true, "size": 255},
+        {"key": "audio_timestamp_seconds", "type": "integer", "required": true},
+        {"key": "card_order", "type": "integer", "required": true},
+        {"key": "tags", "type": "string", "required": false, "size": 1024},
+        {"key": "rating", "type": "string", "required": false, "size": 16},
+        {"key": "edited", "type": "boolean", "required": false, "default": false},
+        {"key": "edited_at", "type": "datetime", "required": false},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "lesson_id", "type": "key", "attributes": ["lesson_id"]},
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "saved_cards",
+      "name": "saved_cards",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "card_id", "type": "string", "required": true, "size": 255},
+        {"key": "notes", "type": "string", "required": false, "size": 4096},
+        {"key": "saved_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "card_id", "type": "unique", "attributes": ["card_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "practice_sessions",
+      "name": "practice_sessions",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "lesson_id", "type": "string", "required": false, "size": 255},
+        {"key": "scenario_id", "type": "string", "required": true, "size": 255},
+        {"key": "scenario_title", "type": "string", "required": true, "size": 255},
+        {"key": "audience_preset", "type": "string", "required": true, "size": 32},
+        {"key": "persona", "type": "string", "required": true, "size": 255},
+        {"key": "mode", "type": "string", "required": true, "size": 16},
+        {"key": "status", "type": "string", "required": true, "size": 32},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "scenario_id", "type": "key", "attributes": ["scenario_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "activity_log",
+      "name": "activity_log",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": false, "size": 255},
+        {"key": "action", "type": "string", "required": true, "size": 128},
+        {"key": "entity_type", "type": "string", "required": true, "size": 128},
+        {"key": "entity_id", "type": "string", "required": false, "size": 255},
+        {"key": "details", "type": "string", "required": false, "size": 4096},
+        {"key": "ip_address", "type": "string", "required": false, "size": 64},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "action", "type": "key", "attributes": ["action"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read"]},
+        {"role": "any", "actions": ["read"]}
+      ]
+    },
+    {
+      "id": "streaks",
+      "name": "streaks",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "current_streak", "type": "integer", "required": true, "default": 0},
+        {"key": "longest_streak", "type": "integer", "required": true, "default": 0},
+        {"key": "last_activity_local_date", "type": "string", "required": true, "size": 32},
+        {"key": "freezes_available", "type": "integer", "required": true, "default": 1},
+        {"key": "freezes_used_this_week", "type": "integer", "required": true, "default": 0},
+        {"key": "freeze_last_reset_week", "type": "string", "required": true, "size": 32},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "unique", "attributes": ["user_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "usage_counters",
+      "name": "usage_counters",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "usage_date", "type": "string", "required": true, "size": 32},
+        {"key": "lessons_created", "type": "integer", "required": true, "default": 0},
+        {"key": "tts_seconds_used", "type": "integer", "required": true, "default": 0},
+        {"key": "input_tokens", "type": "integer", "required": true, "default": 0},
+        {"key": "output_tokens", "type": "integer", "required": true, "default": 0}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "unique", "attributes": ["user_id"]},
+        {"key": "usage_date", "type": "unique", "attributes": ["user_id", "usage_date"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update"]}
+      ]
+    },
+    {
+      "id": "api_keys",
+      "name": "api_keys",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "workspace_id", "type": "string", "required": false, "size": 255},
+        {"key": "name", "type": "string", "required": true, "size": 255},
+        {"key": "key_prefix", "type": "string", "required": true, "size": 64},
+        {"key": "key_hash", "type": "string", "required": true, "size": 255},
+        {"key": "scopes", "type": "string", "required": true, "size": 1024},
+        {"key": "rate_limit_per_minute", "type": "integer", "required": true, "default": 60},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "last_used_at", "type": "datetime", "required": false},
+        {"key": "revoked_at", "type": "datetime", "required": false}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "key_hash", "type": "unique", "attributes": ["key_hash"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "webhooks",
+      "name": "webhooks",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "workspace_id", "type": "string", "required": false, "size": 255},
+        {"key": "target_url", "type": "string", "required": true, "size": 2048},
+        {"key": "signing_secret", "type": "string", "required": true, "size": 255},
+        {"key": "events", "type": "string", "required": true, "size": 1024},
+        {"key": "is_active", "type": "boolean", "required": true, "default": true},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "webhook_deliveries",
+      "name": "webhook_deliveries",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "webhook_id", "type": "string", "required": true, "size": 255},
+        {"key": "event_type", "type": "string", "required": true, "size": 128},
+        {"key": "payload", "type": "string", "required": true, "size": 4096},
+        {"key": "response_status", "type": "integer", "required": false},
+        {"key": "response_body", "type": "string", "required": false, "size": 4096},
+        {"key": "attempt_count", "type": "integer", "required": true, "default": 0},
+        {"key": "delivered_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "webhook_id", "type": "key", "attributes": ["webhook_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read"]}
+      ]
+    },
+    {
+      "id": "audit_log",
+      "name": "audit_log",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": false, "size": 255},
+        {"key": "action", "type": "string", "required": true, "size": 128},
+        {"key": "entity_type", "type": "string", "required": true, "size": 128},
+        {"key": "entity_id", "type": "string", "required": false, "size": 255},
+        {"key": "details", "type": "string", "required": false, "size": 4096},
+        {"key": "ip_address", "type": "string", "required": false, "size": 64},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "action", "type": "key", "attributes": ["action"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read"]},
+        {"role": "any", "actions": ["read"]}
+      ]
+    },
+    {
+      "id": "jobs",
+      "name": "jobs",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "job_type", "type": "string", "required": true, "size": 64},
+        {"key": "status", "type": "string", "required": true, "size": 32},
+        {"key": "current_step", "type": "string", "required": true, "size": 64},
+        {"key": "steps", "type": "string", "required": true, "size": 4096},
+        {"key": "idempotency_key", "type": "string", "required": true, "size": 255},
+        {"key": "error_message", "type": "string", "required": false, "size": 1024},
+        {"key": "lease_expires_at", "type": "datetime", "required": false},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "idempotency_key", "type": "unique", "attributes": ["idempotency_key"]},
+        {"key": "status", "type": "key", "attributes": ["status"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "payments",
+      "name": "payments",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "provider", "type": "string", "required": true, "size": 64},
+        {"key": "checkout_request_id", "type": "string", "required": true, "size": 255},
+        {"key": "amount_kes", "type": "integer", "required": true},
+        {"key": "status", "type": "string", "required": true, "size": 32},
+        {"key": "receipt_number", "type": "string", "required": false, "size": 128},
+        {"key": "phone_number", "type": "string", "required": false, "size": 64},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "checkout_request_id", "type": "unique", "attributes": ["checkout_request_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update"]}
+      ]
+    },
+    {
+      "id": "subscriptions",
+      "name": "subscriptions",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "tier", "type": "string", "required": true, "size": 32},
+        {"key": "status", "type": "string", "required": true, "size": 32},
+        {"key": "started_at", "type": "datetime", "required": true},
+        {"key": "expires_at", "type": "datetime", "required": true},
+        {"key": "school_email_verified", "type": "boolean", "required": false, "default": false},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "unique", "attributes": ["user_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "telegram_links",
+      "name": "telegram_links",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "telegram_user_id", "type": "string", "required": true, "size": 128},
+        {"key": "link_code", "type": "string", "required": true, "size": 64},
+        {"key": "is_active", "type": "boolean", "required": true, "default": true},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "unique", "attributes": ["user_id"]},
+        {"key": "telegram_user_id", "type": "unique", "attributes": ["telegram_user_id"]},
+        {"key": "link_code", "type": "unique", "attributes": ["link_code"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "card_feedback",
+      "name": "card_feedback",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "card_id", "type": "string", "required": true, "size": 255},
+        {"key": "rating", "type": "string", "required": true, "size": 16},
+        {"key": "created_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "card_id", "type": "key", "attributes": ["card_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "ask_threads",
+      "name": "ask_threads",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "user_id", "type": "string", "required": true, "size": 255},
+        {"key": "lesson_id", "type": "string", "required": true, "size": 255},
+        {"key": "question", "type": "string", "required": true, "size": 4096},
+        {"key": "answer", "type": "string", "required": false, "size": 8192},
+        {"key": "confidence", "type": "string", "required": false, "size": 16},
+        {"key": "created_at", "type": "datetime", "required": true},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "user_id", "type": "key", "attributes": ["user_id"]},
+        {"key": "lesson_id", "type": "key", "attributes": ["lesson_id"]}
+      ],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "update", "delete"]}
+      ]
+    },
+    {
+      "id": "system_flags",
+      "name": "system_flags",
+      "enabled": true,
+      "rowSecurity": true,
+      "attributes": [
+        {"key": "flag", "type": "string", "required": true, "size": 128},
+        {"key": "value", "type": "string", "required": true, "size": 1024},
+        {"key": "updated_at", "type": "datetime", "required": true}
+      ],
+      "indexes": [
+        {"key": "flag", "type": "unique", "attributes": ["flag"]}
+      ],
+      "permissions": [
+        {"role": "any", "actions": ["read"]},
+        {"role": "user", "actions": ["create", "update", "delete"]}
+      ]
+    }
+  ],
+  "buckets": [
+    {
+      "id": "uploads",
+      "name": "uploads",
+      "enabled": true,
+      "fileSecurity": true,
+      "sizeLimit": 15728640,
+      "allowedFileExtensions": ["pdf", "txt", "md"],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "delete"]}
+      ]
+    },
+    {
+      "id": "audio",
+      "name": "audio",
+      "enabled": true,
+      "fileSecurity": true,
+      "sizeLimit": 52428800,
+      "allowedFileExtensions": ["wav", "mp3", "opus"],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "delete"]}
+      ]
+    },
+    {
+      "id": "exports",
+      "name": "exports",
+      "enabled": true,
+      "fileSecurity": true,
+      "sizeLimit": 10485760,
+      "allowedFileExtensions": ["json", "csv", "md"],
+      "permissions": [
+        {"role": "user", "actions": ["create", "read", "delete"]}
+      ]
+    }
+  ]
+}

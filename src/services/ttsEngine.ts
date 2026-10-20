@@ -3,7 +3,7 @@
  * Covers Requirements F8, F10.
  */
 
-import { GeminiService } from './gemini.ts';
+import { GeminiClient } from './gemini.ts';
 import { isDailySpendKillSwitchActive, TTS_PROVIDER_DUAL_HOST, type TtsProvider } from '../config/index.ts';
 import type { HostDialogueLine } from '../db/types.ts';
 
@@ -45,7 +45,8 @@ export class TtsEngine {
         text: line.text,
       }));
 
-      const result = await GeminiService.generateDualSpeakerTts(dialogue);
+      const client = new GeminiClient();
+      const result = await client.generateDualSpeakerTts(dialogue);
 
       return {
         audioUrl: `data:audio/wav;base64,${result.base64Wav}`,

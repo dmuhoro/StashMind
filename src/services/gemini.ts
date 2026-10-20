@@ -1,6 +1,10 @@
 /**
  * Gemini SDK Adapter Service (Server-side only)
  * Follows 2026 @google/genai guidelines with central configuration.
+ *
+ * Uses AIClient interface for structured JSON generation.
+ * Fails fast in production if GEMINI_API_KEY is not set or is a dummy key.
+ * Model IDs are verified against Google's live model list at startup.
  */
 
 import { GoogleGenAI, Type } from '@google/genai';
@@ -9,14 +13,20 @@ import {
   HTTP_CLIENT_HEADERS,
   isDailySpendKillSwitchActive,
 } from '../config/index.ts';
+import { AIClient } from './aiClient.ts';
 
 let genAiClient: GoogleGenAI | null = null;
 
 function getGenAiClient(): GoogleGenAI {
   if (!genAiClient) {
     const apiKey = typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined;
+    if (!apiKey || apiKey === 'dummy-key-for-local-development') {
+      throw new Error(
+        'GEMINI_API_KEY not set or is a dummy key. AI engine requires a real API key.'
+      );
+    }
     genAiClient = new GoogleGenAI({
-      apiKey: apiKey || 'dummy-key-for-local-development',
+      apiKey,
       httpOptions: {
         headers: {
           'User-Agent': HTTP_CLIENT_HEADERS.USER_AGENT,
@@ -27,20 +37,27 @@ function getGenAiClient(): GoogleGenAI {
   return genAiClient;
 }
 
-export class GeminiService {
+export class GeminiClient implements AIClient {
   /**
    * Generates structured JSON with schema validation and automatic 1-retry repair.
    */
-  static async generateStructuredJson<T>(params: {
+  async generateStructuredJson<T>(params: {
     systemInstruction: string;
     prompt: string;
     schema: Record<string, unknown>;
     model?: string;
   }): Promise<{ data: T; inputTokens: number; outputTokens: number }> {
     const apiKey = typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined;
-    const isTestEnvironment = typeof process !== 'undefined' && (process.env?.VITEST === 'true' || process.env?.NODE_ENV === 'test');
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.startsWith('dummy-key') || isTestEnvironment) {
-      throw new Error('FAST_FAIL_TEST_MODE: API key not set or running in test mode. Fast-falling back to deterministic synthesis.');
+    if (!apiKey || apiKey === 'dummy-key-for-local-development') {
+      throw new Error(
+        'GEMINI_API_KEY not set or is a dummy key. AI engine requires a real API key.'
+      );
+    }
+
+    if (isDailySpendKillSwitchActive()) {
+      throw new Error(
+        'KILL_SWITCH_ACTIVE: Global spend limit active. AI generation paused.'
+      );
     }
 
     const ai = getGenAiClient();
@@ -48,58 +65,62 @@ export class GeminiService {
 
     const requestConfig = {
       systemInstruction: params.systemInstruction,
-      responseMimeType: 'application/json',
+      responseMimeType: 'application/json' as const,
       responseSchema: params.schema as unknown,
     };
 
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: params.prompt,
-        config: requestConfig,
-      });
-
-      const text = response.text || '';
-      const parsed = JSON.parse(text) as T;
-
-      return {
-        data: parsed,
-        inputTokens: response.usageMetadata?.promptTokenCount ?? 120,
-        outputTokens: response.usageMetadata?.candidatesTokenCount ?? 350,
-      };
-    } catch (primaryError) {
-      // Automatic Repair Retry
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const retryPrompt = `${params.prompt}\n\nIMPORTANT: Your previous output did not match valid JSON. Return ONLY the strict JSON object matching the requested schema.`;
-        const retryResponse = await ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model,
-          contents: retryPrompt,
+          contents: params.prompt,
           config: requestConfig,
         });
 
-        const retryText = retryResponse.text || '';
-        const repaired = JSON.parse(retryText) as T;
+        const text = response.text || '';
+        const parsed = JSON.parse(text) as T;
 
         return {
-          data: repaired,
-          inputTokens: retryResponse.usageMetadata?.promptTokenCount ?? 150,
-          outputTokens: retryResponse.usageMetadata?.candidatesTokenCount ?? 380,
+          data: parsed,
+          inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
+          outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
         };
-      } catch {
-        throw new Error(`JSON_GENERATION_FAILED: Model response was not valid JSON: ${primaryError}`);
+      } catch (err) {
+        lastError = err;
+        // Automatic repair retry on JSON parse failure
+        if (attempt === 0) {
+          const retryPrompt = `${params.prompt}\n\nIMPORTANT: Return ONLY valid JSON matching the schema.`;
+          const retryResponse = await ai.models.generateContent({
+            model,
+            contents: retryPrompt,
+            config: requestConfig,
+          });
+          const retryText = retryResponse.text || '';
+          const repaired = JSON.parse(retryText) as T;
+          return {
+            data: repaired,
+            inputTokens: retryResponse.usageMetadata?.promptTokenCount ?? 0,
+            outputTokens: retryResponse.usageMetadata?.candidatesTokenCount ?? 0,
+          };
+        }
       }
     }
+
+    throw lastError || new Error('AI generation failed');
   }
 
   /**
    * Generates single-speaker or dual-speaker audio using Gemini 3.8 TTS.
    */
-  static async generateDualSpeakerTts(dialogue: { speaker: string; text: string }[]): Promise<{
+  async generateDualSpeakerTts(dialogue: { speaker: string; text: string }[]): Promise<{
     base64Wav: string;
     audioSeconds: number;
   }> {
     if (isDailySpendKillSwitchActive()) {
-      throw new Error('KILL_SWITCH_ACTIVE: Global spend limit active. Audio generation paused; using text fallback.');
+      throw new Error(
+        'KILL_SWITCH_ACTIVE: Global spend limit active. Audio generation paused; using text fallback.'
+      );
     }
 
     const ai = getGenAiClient();

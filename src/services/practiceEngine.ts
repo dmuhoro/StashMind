@@ -6,9 +6,10 @@
 import {
   AUDIENCE_PRESETS,
   QUOTAS,
+  MODELS,
   type AudiencePreset,
 } from '../config/index.ts';
-import { GeminiService } from './gemini.ts';
+import { createAIClient } from './aiClient.ts';
 import type { PracticeSession, PracticeTurn, PracticeScorecard } from '../db/types.ts';
 
 export interface PracticeScenarioDefinition {
@@ -199,16 +200,21 @@ Evaluate the turn and reply as the persona.`;
       structure_score: number;
     };
 
+    const aiClient = createAIClient();
+
     try {
-      const response = await GeminiService.generateStructuredJson<typeof evaluation>({
+      const response = await aiClient.generateStructuredJson<typeof evaluation>({
         systemInstruction,
         prompt,
         schema,
+        model: MODELS.FLASH,
       });
       evaluation = response.data;
     } catch {
-      // Deterministic fallback
-      evaluation = this.createFallbackTurnEvaluation(userInput);
+      // Fail closed: no fallback when AI generation fails
+      throw new Error(
+        'AI_GENERATION_FAILED: Could not evaluate practice turn. AI client returned an error.'
+      );
     }
 
     // STRICTLY ENFORCE 30-WORD FEEDBACK LIMIT

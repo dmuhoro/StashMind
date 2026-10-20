@@ -8,12 +8,13 @@ import {
   AUDIENCE_PRESETS,
   TTS_PROVIDER_DUAL_HOST,
   LANGUAGES,
+  MODELS,
   type AudiencePreset,
   type LessonStyle,
   type LessonLengthMinutes,
   type LessonLanguage,
 } from '../config/index.ts';
-import { GeminiService } from './gemini.ts';
+import { createAIClient } from './aiClient.ts';
 import { CacheService } from './cache.ts';
 import type { Lesson, Card, HostDialogueLine, LessonSectionMarker } from '../db/types.ts';
 
@@ -143,16 +144,21 @@ Generate the complete lesson and insight cards according to the requested schema
       }>;
     };
 
+    const aiClient = createAIClient();
+
     try {
-      const response = await GeminiService.generateStructuredJson<typeof generatedData>({
+      const response = await aiClient.generateStructuredJson<typeof generatedData>({
         systemInstruction,
         prompt,
         schema,
+        model: MODELS.FLASH,
       });
       generatedData = response.data;
     } catch {
-      // Robust deterministic fallback when Gemini API key is unset or in test environment
-      generatedData = this.createFallbackStructuredLesson(options.sourceTitle, options.sourceText, preset, style, duration, language);
+      // Fail closed: no fallback when AI generation fails
+      throw new Error(
+        'AI_GENERATION_FAILED: Could not generate lesson. AI client returned an error.'
+      );
     }
 
     const lessonId = `les_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;

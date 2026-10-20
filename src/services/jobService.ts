@@ -1,14 +1,13 @@
 /**
  * Job Service — Async job queue with leases, heartbeats, retries, and idempotency.
  *
- * Jobs table tracks per-step status (ingest, script, cards, tts, assemble, ready)
+ * Jobs track per-step status (ingest, script, cards, tts, assemble, ready)
  * with step timeouts leading to a failed state. Worker loop processes jobs
  * with exponential backoff and crash recovery.
  */
 
 import { StashMindRepository } from '../db/repository.ts';
 import { TABLES } from '../config/appwrite.ts';
-import type { SpacedReview } from '../db/types.ts';
 
 export type JobStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'abandoned';
 export type JobStep = 'ingest' | 'script' | 'cards' | 'tts' | 'assemble' | 'ready';
@@ -46,12 +45,13 @@ export async function createJob(data: JobData): Promise<JobResult> {
   const existing = await StashMindRepository.instance.getDueReviews(data.userId);
   const existingJob = existing.find((j: any) => j.idempotency_key === data.idempotencyKey);
   if (existingJob) {
+    const ej = existingJob as any;
     return {
-      jobId: existingJob.id,
-      status: existingJob.status as JobStatus,
-      currentStep: existingJob.current_step as JobStep,
-      steps: existingJob.steps ? JSON.parse(existingJob.steps) : [],
-      error: existingJob.error_message,
+      jobId: ej.id,
+      status: ej.status as JobStatus,
+      currentStep: ej.current_step as JobStep,
+      steps: ej.steps ? JSON.parse(ej.steps) : [],
+      error: ej.error_message,
     };
   }
 
@@ -71,7 +71,7 @@ export async function createJob(data: JobData): Promise<JobResult> {
     repetition_number: 0,
     due_date: new Date().toISOString(),
     last_reviewed_at: new Date().toISOString(),
-  } as unknown as SpacedReview);
+  } as any);
 
   return {
     jobId: doc.id,
@@ -107,15 +107,16 @@ export async function claimJob(userId: string): Promise<JobResult | null> {
     repetition_number: pendingJob.repetition_number,
     due_date: pendingJob.due_date,
     last_reviewed_at: pendingJob.last_reviewed_at,
-  } as unknown as SpacedReview);
+  } as any);
 
-  return {
-    jobId: pendingJob.id,
-    status: 'processing' as JobStatus,
-    currentStep: pendingJob.current_step as JobStep,
-    steps: pendingJob.steps ? JSON.parse(pendingJob.steps) : [],
-    error: pendingJob.error_message,
-  };
+    const pj = pendingJob as any;
+    return {
+      jobId: pj.id,
+      status: 'processing' as JobStatus,
+      currentStep: pj.current_step as JobStep,
+      steps: pj.steps ? JSON.parse(pj.steps) : [],
+      error: pj.error_message,
+    };
 }
 
 /**
@@ -132,7 +133,7 @@ export async function updateJobStep(
   const job = jobs.find((j: any) => j.id === jobId);
   if (!job) return;
 
-  const steps = job.steps ? JSON.parse(job.steps) : [];
+  const steps = (job as any).steps ? JSON.parse((job as any).steps) : [];
   const stepIndex = steps.findIndex((s: JobStepStatus) => s.step === step);
   if (stepIndex >= 0) {
     steps[stepIndex] = {
@@ -161,7 +162,7 @@ export async function updateJobStep(
     repetition_number: job.repetition_number,
     due_date: job.due_date,
     last_reviewed_at: new Date().toISOString(),
-  } as unknown as SpacedReview);
+  } as any);
 }
 
 /**
@@ -186,7 +187,7 @@ export async function failJob(
     repetition_number: job.repetition_number,
     due_date: job.due_date,
     last_reviewed_at: new Date().toISOString(),
-  } as unknown as SpacedReview);
+  } as any);
 }
 
 /**

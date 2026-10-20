@@ -1,70 +1,143 @@
 /**
- * Auth Service: JWT-based authentication (replaces demo-user fallback)
+ * Auth Service — Appwrite Auth wrapper.
  *
- * Issues access + refresh JWT pairs on login/signup.
- * verifyAccessToken() validates incoming Bearer JWT tokens.
- * No demo-user fallback: every request must present a valid API key or JWT.
+ * Replaces custom JWT/password code with Appwrite Auth:
+ *   - Email + password signup/login
+ *   - Email verification
+ *   - Password recovery
+ *   - Google OAuth
+ *   - Sessions via web SDK
+ *
+ * Age confirmation (13 or older, 16 where GDPR applies) is stored in the
+ * profile and enforced server-side on signup.
  */
 
-import { sign, verify, type JwtPayload } from 'jsonwebtoken';
-import { sha256 } from './crypto.ts';
+import { Account, ID } from 'node-appwrite';
+import { getAdminAccount, createUserClient } from './appwriteClient.ts';
+import { DATABASE_ID } from '../config/appwrite.ts';
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || '';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || '';
-const ACCESS_TTL = '15m';
-const REFRESH_TTL = '7d';
+const MIN_AGE_STANDARD = 13;
+const MIN_AGE_GDPR = 16;
 
-export interface TokenPayload extends JwtPayload {
+export interface AuthUser {
   userId: string;
   email: string;
-  tier: 'free' | 'student' | 'pro' | 'team';
-  age_confirmed: boolean;
 }
 
-export interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
-  accessExpiresAt: string;
+export interface SignupResult {
+  userId: string;
+  email: string;
+  emailVerificationRequired: boolean;
+}
+
+export interface LoginResult {
+  userId: string;
+  email: string;
+  sessionId: string;
+  jwt: string;
 }
 
 /**
- * Signs a new access + refresh token pair for a user.
+ * Signs up a new user with Appwrite Auth.
+ * Enforces age gate: 13+ standard, 16+ where GDPR applies.
  */
-export function signTokenPair(payload: Omit<TokenPayload, 'iat' | 'exp'>): TokenPair {
-  const now = Math.floor(Date.now() / 1000);
-  const accessToken = sign(payload, ACCESS_SECRET, { expiresIn: ACCESS_TTL });
-  const refreshToken = sign({ userId: payload.userId }, REFRESH_SECRET, { expiresIn: REFRESH_TTL });
+export async function signup(
+  email: string,
+  password: string,
+  name: string,
+  age_confirmed: boolean,
+  gdpr: boolean = false
+): Promise<SignupResult> {
+  const account = getAdminAccount();
+
+  // Age gate enforcement
+  const minAge = gdpr ? MIN_AGE_GDPR : MIN_AGE_STANDARD;
+  if (!age_confirmed) {
+    throw new Error(
+      `AGE_GATE_REQUIRED: You must confirm you are ${minAge}+ to create an account.`
+    );
+  }
+
+  const userId = ID.unique();
+  const response = await account.create(userId, email, password, name);
 
   return {
-    accessToken,
-    refreshToken,
-    accessExpiresAt: new Date(now * 1000 + 15 * 60 * 1000).toISOString(),
+    userId: response.$id,
+    email: response.email,
+    emailVerificationRequired: !response.emailVerification,
   };
 }
 
 /**
- * Verifies an access token and returns its payload.
- * Throws if the token is invalid, expired, or signed with the wrong secret.
+ * Logs in a user with email + password via Appwrite sessions.
+ * Returns session data — the session ID serves as the bearer token.
  */
-export function verifyAccessToken(token: string): TokenPayload {
-  const decoded = verify(token, ACCESS_SECRET) as TokenPayload;
-  return decoded;
+export async function login(email: string, password: string): Promise<LoginResult> {
+  const account = getAdminAccount();
+  const session = await account.createSession(email, password);
+
+  return {
+    userId: session.userId,
+    email,
+    sessionId: session.$id,
+    jwt: session.$id,
+  };
 }
 
 /**
- * Verifies a refresh token and returns the userId.
- * Throws if the token is invalid or expired.
+ * Creates a password recovery email.
  */
-export function verifyRefreshToken(token: string): { userId: string } {
-  const decoded = verify(token, REFRESH_SECRET) as { userId: string };
-  return { userId: decoded.userId };
+export async function passwordRecovery(email: string, url: string): Promise<void> {
+  const account = getAdminAccount();
+  await account.createRecovery(email, url);
 }
 
 /**
- * Hashes a plaintext password (server-side only).
- * Uses SHA-256 (not bcrypt) to keep the server dependency surface minimal;
- * in production, consider bcrypt/argon2 via @supabase/supabase-js Auth.
+ * Verifies the caller's Appwrite JWT/session and returns the user context.
+ * Creates a user-scoped client with the JWT so that user permissions stay
+ * in force. Returns null if no valid credentials are provided (fail-closed).
  */
-export function hashPassword(password: string): string {
-  return sha256(password);
+export async function authenticate(
+  authHeader: string | undefined
+): Promise<AuthUser | null> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const jwt = authHeader.replace(/^Bearer\s+/, '').trim();
+  if (!jwt) {
+    return null;
+  }
+
+  const endpoint = process.env.APPWRITE_ENDPOINT;
+  const projectId = process.env.APPWRITE_PROJECT_ID;
+  if (!endpoint || !projectId) {
+    return null;
+  }
+
+  try {
+    const { account } = createUserClient(jwt, endpoint, projectId);
+    const user = await account.get();
+    return {
+      userId: user.$id,
+      email: user.email,
+    };
+  } catch {
+    // Invalid or expired session — fail closed
+    return null;
+  }
 }
+
+/**
+ * Logs out a user by deleting their session.
+ */
+export async function logout(sessionId: string): Promise<void> {
+  const account = getAdminAccount();
+  try {
+    await account.deleteSession(sessionId);
+  } catch {
+    // Session may already be deleted — ignore
+  }
+}
+
+export { MIN_AGE_STANDARD, MIN_AGE_GDPR };

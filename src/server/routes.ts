@@ -21,7 +21,9 @@ import { AskSourceService } from '../services/askSource.ts';
 import { StudyModeService } from '../services/studyMode.ts';
 import { initiateStkPush, verifyMpesaCallback, MPESA_PRICING } from '../services/payments.ts';
 import { authenticate, signup as authSignup, login as authLogin, logout as authLogout } from '../services/auth.ts';
+import { uploadAudio, deleteAudio, getAudioUrl, convertToOpus } from '../services/audioStorage.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
+import { TABLES } from '../config/appwrite.ts';
 
 export const apiV1Router = Router();
 
@@ -69,6 +71,101 @@ apiV1Router.get('/health', (_req: Request, res: Response) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
   });
+});
+
+// --- Readiness Check (checks Appwrite and required config) ---
+apiV1Router.get('/ready', async (_req: Request, res: Response) => {
+  const checks: Record<string, boolean> = {
+    appwrite_endpoint: !!process.env.APPWRITE_ENDPOINT,
+    appwrite_project: !!process.env.APPWRITE_PROJECT_ID,
+    appwrite_api_key: !!process.env.APPWRITE_API_KEY,
+    gemini_api_key: !!process.env.GEMINI_API_KEY,
+  };
+
+  const allHealthy = Object.values(checks).every(Boolean);
+
+  // Try Appwrite connection if configured
+  if (process.env.APPWRITE_ENDPOINT && process.env.APPWRITE_PROJECT_ID && process.env.APPWRITE_API_KEY) {
+    try {
+      const { getAdminDb } = await import('../services/appwriteClient.ts');
+      await getAdminDb().listDocuments((process.env.APPWRITE_DATABASE_ID || 'stashmind_db') as string, TABLES.PROFILES, [] as string[]);
+      checks.appwrite_reachable = true;
+    } catch {
+      checks.appwrite_reachable = false;
+    }
+  }
+
+  if (!allHealthy || !checks.appwrite_reachable) {
+    res.status(503).json({
+      status: 'not_ready',
+      checks,
+    });
+    return;
+  }
+
+  res.json({
+    status: 'ready',
+    checks,
+  });
+});
+
+// --- Audio Streaming (authenticated, Range support) ---
+apiV1Router.get('/audio/:fileId', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { fileId } = req.params;
+  const range = req.headers.range;
+
+  try {
+    const { getAdminStorage } = await import('../services/appwriteClient.ts');
+    const bucketId = process.env.APPWRITE_BUCKET_AUDIO || 'audio';
+
+    // Get file info
+    const file = await getAdminStorage().getFile(bucketId, fileId);
+    const fileSize = file.sizeOriginal;
+    const mimeType = file.mimeType;
+
+    if (!range) {
+      res.set({
+        'Content-Type': mimeType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.status(200).end();
+      return;
+    }
+
+    const rangeMatch = range.match(/bytes=(\d+)-(\d*)/);
+    const start = rangeMatch ? parseInt(rangeMatch[1], 10) : 0;
+    const end = rangeMatch ? (rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1) : fileSize - 1;
+    const chunkSize = end - start + 1;
+
+    // Download full file and stream the requested range (AppWrite getFileDownload returns a stream)
+    const fileStream = await getAdminStorage().getFileDownload(bucketId, fileId);
+    const chunks: Buffer[] = [];
+    for await (const chunk of fileStream as unknown as AsyncIterable<Buffer>) {
+      chunks.push(chunk);
+    }
+    const fullBuffer = Buffer.concat(chunks) as Buffer;
+    const chunkBuffer = fullBuffer.slice(start, end + 1);
+
+    res.set({
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': String(chunkSize),
+      'Content-Type': mimeType,
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.status(206).send(chunkBuffer);
+  } catch (e: any) {
+    if (e.code === 404) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Audio file not found.' } });
+    } else {
+      res.status(500).json({ error: { code: 'STREAM_FAILED', message: e.message } });
+    }
+  }
 });
 
 // --- Auth: Signup (Appwrite Auth) ---
@@ -292,8 +389,36 @@ apiV1Router.post('/lessons', async (req: Request, res: Response) => {
     // Synthesize audio
     const profile = await StashMindRepository.instance.getProfile(userId);
     const audioResult = await TtsEngine.synthesizeLessonAudio(lesson.script, profile?.data_saver ?? false);
-    lesson.audio_url = audioResult.audioUrl;
-    lesson.audio_duration_seconds = audioResult.audioDurationSeconds;
+
+    // Upload audio to AppWrite Storage (private bucket)
+    let audioFileId: string | null = null;
+    let audioDownloadUrl: string | null = null;
+    if (audioResult.base64Wav) {
+      const wavBuffer = Buffer.from(audioResult.base64Wav, 'base64');
+
+      // Data-saver: convert to low-bitrate Opus
+      let finalBuffer = wavBuffer;
+      let mimeType = 'audio/wav';
+      if (profile?.data_saver) {
+        const converted = await convertToOpus(wavBuffer, 32);
+        finalBuffer = Buffer.from(converted.buffer as unknown as Uint8Array);
+        mimeType = converted.mimeType;
+      }
+
+      const upload = await uploadAudio(finalBuffer, `${lesson.id}.${mimeType === 'audio/opus' ? 'opus' : 'wav'}`);
+      audioFileId = upload.fileId;
+      audioDownloadUrl = await getAudioUrl(upload.fileId);
+    }
+
+    lesson.audio_url = audioDownloadUrl || null;
+    lesson.audio_duration_seconds = await (
+      audioResult.base64Wav
+        ? (() => {
+            const wavBuffer = Buffer.from(audioResult.base64Wav, 'base64');
+            return TtsEngine.measureAudioDuration(wavBuffer);
+          })()
+        : audioResult.audioDurationSeconds
+    );
     lesson.tts_provider = audioResult.ttsProvider;
 
     await StashMindRepository.instance.saveLesson(userId, lesson);

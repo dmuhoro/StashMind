@@ -8,8 +8,9 @@
  *   payment callbacks, kill switch).
  */
 
-import { Client, Account, Databases, Storage } from 'node-appwrite';
+export { ID } from 'node-appwrite';
 
+import { Client, Account, Databases, Storage } from 'node-appwrite';
 let adminClient: Client | null = null;
 let adminAccount: Account | null = null;
 let adminDb: Databases | null = null;

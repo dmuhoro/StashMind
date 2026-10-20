@@ -128,4 +128,16 @@ export class TtsEngine {
     }
     return btoa(binaryStr);
   }
+
+  /**
+   * Estimates audio duration from word count (~140 words per minute).
+   * Used as a fallback when ffprobe is not available.
+   */
+  static measureAudioDuration(wavBuffer: Buffer): number {
+    // Approximate: WAV audio at 24kHz 16-bit mono, estimate duration from buffer size
+    // 24000 bytes per second for 16-bit mono (2 bytes * 24000 samples / 2 channels... actually 1 channel = 2 bytes/sample * 24000 samples/sec = 48000 bytes/sec)
+    const bytesPerSecond = 48000;
+    const estimatedSeconds = wavBuffer.length / bytesPerSecond;
+    return Math.max(5, Math.round(estimatedSeconds));
+  }
 }

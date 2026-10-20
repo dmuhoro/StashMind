@@ -1,6 +1,10 @@
 /**
  * StashMind Full-Stack Server
  * Express 4 server hosting `/api/v1/*` REST API, MCP tool server, and Vite dev middleware on port 3000.
+ *
+ * Exports `createApp()` so the same Express app can be:
+ * - Listened on port 3000 locally (via `bootstrap()`)
+ * - Served as a Vercel serverless function (via `api/server.ts`)
  */
 
 import express from 'express';
@@ -9,9 +13,8 @@ import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { apiV1Router } from './src/server/routes.ts';
 
-async function bootstrap() {
+export async function createApp(): Promise<express.Application> {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
   // Request parsing with generous limit for PDF/text uploads (15MB)
@@ -68,6 +71,13 @@ async function bootstrap() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  return app;
+}
+
+async function bootstrap() {
+  const app = await createApp();
+  const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[StashMind] Full-stack engine running on http://0.0.0.0:${PORT}`);

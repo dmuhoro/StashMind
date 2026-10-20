@@ -39,7 +39,7 @@ function shouldLog(level: LogLevel): boolean {
   return LEVEL_ORDER[level] >= LEVEL_ORDER[logLevel];
 }
 
-function log(level: LogLevel, message: string, meta: LogEntry = {}): void {
+function log(level: LogLevel, message: string, meta: Partial<LogEntry> = {}): void {
   if (!shouldLog(level)) return;
 
   const entry: LogEntry = {
@@ -51,7 +51,7 @@ function log(level: LogLevel, message: string, meta: LogEntry = {}): void {
 
   // Redact sensitive fields
   if (entry.headers) {
-    entry.headers = { ...entry.headers, authorization: '[REDACTED]' };
+    entry.headers = { ...(entry.headers as Record<string, unknown>), authorization: '[REDACTED]' };
   }
 
   console.log(JSON.stringify(entry));
@@ -96,7 +96,7 @@ export function requestLoggerMiddleware(
       url: req.url,
       statusCode: res.statusCode,
       durationMs,
-    });
+    } as Partial<LogEntry>);
   });
 
   next();

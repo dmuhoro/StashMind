@@ -26,11 +26,13 @@ describe('Integration Contract & RLS Isolation Tests (Part C & Phase 1)', () => 
     expect(readByA).not.toBeNull();
     expect(readByA?.id).toBe('les_alpha_test');
 
-    // RLS ISOLATION CHECK: User B attempting to read User A's lesson must throw RLS_VIOLATION
-    await expect(repo.getLesson(userB, 'les_alpha_test')).rejects.toThrowError(/RLS_VIOLATION/);
+    // RLS ISOLATION CHECK: User B cannot read User A's lesson (returns null, fail-closed)
+    const readByB = await repo.getLesson(userB, 'les_alpha_test');
+    expect(readByB).toBeNull();
 
-    // RLS ISOLATION CHECK: User B attempting to delete User A's lesson must throw RLS_VIOLATION
-    await expect(repo.deleteLesson(userB, 'les_alpha_test')).rejects.toThrowError(/RLS_VIOLATION/);
+    // RLS ISOLATION CHECK: User B cannot delete User A's lesson (returns false)
+    const deletedByB = await repo.deleteLesson(userB, 'les_alpha_test');
+    expect(deletedByB).toBe(false);
   });
 
   it('should generate scoped API keys with visible prefix and verified hashes', async () => {

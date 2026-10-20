@@ -30,6 +30,11 @@ const envSchema = z.object({
 export type AppwriteEnv = z.infer<typeof envSchema>;
 
 /**
+ * Database ID — from env after provisioning, defaults to the config value.
+ */
+export const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'stashmind_db';
+
+/**
  * Validated Appwrite environment. Throws in production if any required
  * variable is missing or malformed — fail closed.
  */

@@ -9,6 +9,7 @@ All notable changes to StashMind are documented in this file.
 - **Stability verification script:** `scripts/verify-stability.sh` (17 fail-closed checks)
 - **AI context index:** `ai-context/` (architect, data, devops, frontend, integrations, performance, product, security, test)
 - **CI workflow:** `.github/workflows/ci.yml` (npm ci → typecheck → test → verify)
+- **Elite README:** executive overview, tier 0/1/2 roadmap, headless-first architecture, quickstart, repository structure, constitutional non-negotiables, model roster, deployment guide, topics
 
 ### Changed
 - **Dependencies:** Replaced fake versions (vite@8, plugin-react@6, typescript@7) with real versions (vite@6, plugin-react@4, typescript@5)

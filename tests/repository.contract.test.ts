@@ -336,6 +336,21 @@ function runContractTests(fixtureName: string, makeFixture: () => Promise<RepoFi
         const keys = await repo.listApiKeys('user_key_2');
         expect(keys.find((k) => k.id === key.id)).toBeUndefined();
       });
+
+      it('should store scopes correctly on API key', async () => {
+        const key = await repo.createApiKey(
+          'user_key_3',
+          'Scoped Key',
+          'stm_live_scope3',
+          'hash_scope_' + Date.now(),
+          ['lessons:read', 'cards:read', 'practice:write']
+        );
+        expect(key.scopes).toEqual(['lessons:read', 'cards:read', 'practice:write']);
+
+        const verified = await repo.findApiKeyByHash(key.key_hash);
+        expect(verified?.scopes).toContain('cards:read');
+        expect(verified?.scopes).not.toContain('webhooks:manage');
+      });
     });
   });
 }

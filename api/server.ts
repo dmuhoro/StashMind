@@ -382,7 +382,7 @@ app.post('/api/v1/webhooks/test', (req, res) => {
   res.json({ success: true, dispatched_count: 0 });
 });
 
-app.get('/api/v1/mcp', async (req, res) => {
+app.post('/api/v1/mcp', async (req, res) => {
   const { jsonrpc, id, method, params } = req.body;
   if (method === 'tools/list') {
     res.json({ jsonrpc: '2.0', id, result: { tools: [
@@ -390,6 +390,9 @@ app.get('/api/v1/mcp', async (req, res) => {
       { name: 'get_lesson', description: 'Get a lesson', inputSchema: { type: 'object', properties: {} } },
       { name: 'get_usage', description: 'Get usage', inputSchema: { type: 'object', properties: {} } },
     ] } });
+  } else if (method === 'tools/call') {
+    const { name } = params ?? {};
+    res.json({ jsonrpc: '2.0', id, result: { tool: name, status: 'ok', message: 'MCP tool call received (serverless mode)' } });
   } else {
     res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
   }

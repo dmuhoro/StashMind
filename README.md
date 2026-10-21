@@ -142,7 +142,7 @@ npm run verify
 ### Typecheck + Tests
 ```bash
 npm run typecheck   # tsc --noEmit (strict)
-npm run test        # vitest run (26 tests)
+npm run test        # vitest run (43 tests)
 ```
 
 ### Run Dev Server
@@ -185,7 +185,7 @@ stashmind/
 │   ├── App.tsx                  # React 19 mobile-first UI
 │   └── main.tsx                 # Client entry
 ├── supabase/migrations/         # Versioned SQL migrations
-├── tests/                       # Vitest suites (26 tests)
+├── tests/                       # Vitest suites (43 tests)
 ├── docs/
 │   ├── adr/                     # ADR-001 through ADR-007
 │   ├── integration/             # REST, MCP, Software Factory quickstarts
@@ -244,7 +244,7 @@ See [`docs/`](docs/) for deployment runbooks.
 
 ## 10. Topics
 
-`stashmind` `audio-lessons` `ai-education` `gemini` `tts` `spaced-repetition` `mcp` `headless` `mobile-first` `africa` `swahili` `mpesa` `telegram-bot` `typescript` `react` `express` `supabase` `openapi-3.1`
+`stashmind` `audio-lessons` `ai-education` `gemini` `tts` `spaced-repetition` `mcp` `headless` `mobile-first` `africa` `swahili` `mpesa` `telegram-bot` `typescript` `react` `express` `openapi-3.1`
 
 ---
 

@@ -6,6 +6,8 @@
 import { SecurityService } from './security.ts';
 import { QUOTAS } from '../config/index.ts';
 import type { SourceType } from '../db/types.ts';
+import * as pdfParseModule from 'pdf-parse';
+const pdfParse = (pdfParseModule as any).PDFParse;
 
 export interface IngestionResult {
   sourceType: SourceType;
@@ -45,15 +47,38 @@ export class IngestionService {
 
   /**
    * Ingests and extracts content from uploaded PDF base64 / text (F3).
+   * Uses pdf-parse for real binary PDF text extraction.
    */
-  static ingestPdf(
-    pdfData: { fileName: string; byteSize: number; pageCount?: number; extractedText?: string },
+  static async ingestPdf(
+    pdfData: { fileName: string; byteSize: number; pageCount?: number; extractedText?: string; buffer?: Buffer },
     customTitle?: string
-  ): IngestionResult {
+  ): Promise<IngestionResult> {
     if (pdfData.byteSize > QUOTAS.MAX_SOURCE_PDF_BYTES) {
       throw new Error(`PDF_TOO_LARGE: File size exceeds the maximum limit of ${Math.round(QUOTAS.MAX_SOURCE_PDF_BYTES / (1024 * 1024))}MB.`);
     }
 
+    // If we have a binary PDF buffer, parse it with pdf-parse
+    if (pdfData.buffer) {
+      const data = await pdfParse(pdfData.buffer);
+      if (pdfData.pageCount && data.pages > pdfData.pageCount) {
+        throw new Error(`PDF_TOO_MANY_PAGES: Document exceeds the maximum allowed ${pdfData.pageCount} pages.`);
+      }
+      const text = SecurityService.sanitizeText(data.text);
+      if (!text || text.length < 50) {
+        throw new Error('PDF_EMPTY_OR_SCANNED: Could not extract readable text. The document may be scanned or empty.');
+      }
+      const title = customTitle || pdfData.fileName.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+      const sections = this.segmentTextIntoSections(text);
+      return {
+        sourceType: 'pdf',
+        title,
+        text,
+        charCount: text.length,
+        sectionBreakdown: sections,
+      };
+    }
+
+    // Fallback: pre-extracted text
     if (pdfData.pageCount && pdfData.pageCount > QUOTAS.MAX_SOURCE_PDF_PAGES) {
       throw new Error(`PDF_TOO_MANY_PAGES: Document exceeds the maximum allowed ${QUOTAS.MAX_SOURCE_PDF_PAGES} pages.`);
     }
@@ -65,7 +90,6 @@ export class IngestionService {
 
     const title = customTitle || pdfData.fileName.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
     const sections = this.segmentTextIntoSections(text);
-
     return {
       sourceType: 'pdf',
       title,

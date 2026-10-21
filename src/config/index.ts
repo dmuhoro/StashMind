@@ -151,3 +151,30 @@ export function isValidAudiencePreset(preset: string): preset is AudiencePreset 
 export function isValidLessonStyle(style: string): style is LessonStyle {
   return Object.values(LESSON_STYLES).includes(style as LessonStyle);
 }
+
+/**
+ * All configured model IDs that must exist on Google's live model list.
+ * Verified at startup in production (fail closed).
+ */
+export const CONFIGURED_MODEL_IDS: string[] = [
+  MODELS.FLASH,
+  MODELS.PRO,
+  MODELS.TTS_LITE,
+  MODELS.TTS_DUAL_HOST,
+  MODELS.LIVE_VOICE,
+];
+
+/**
+ * Verifies all configured model IDs against Google's live model list.
+ * Throws in production if any configured model is missing (fail closed).
+ * Returns the verification result.
+ */
+export async function verifyModelsAgainstGoogleLiveList(): Promise<{
+  available: boolean;
+  availableModels: string[];
+  missingModels: string[];
+}> {
+  const { verifyModelRegistry, GeminiClient } = await import('../services/aiClient.ts');
+  const client = new GeminiClient();
+  return verifyModelRegistry(CONFIGURED_MODEL_IDS, client);
+}

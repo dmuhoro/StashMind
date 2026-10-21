@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "baseline_date": "2026-10-20",
+  "branch": "completion/appwrite",
+  "doctor_pass": 47,
+  "doctor_warn": 21,
+  "doctor_fail": 19,
+  "test_count_at_baseline": 26,
+  "features": [
+    {"id": "F1", "name": "Login, presets, age gate", "status": "PARTIAL", "tests": 0, "notes": "Custom JWT auth, demo user fallback — needs Appwrite Auth migration"},
+    {"id": "F2", "name": "Ingest pasted text", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "Ingestion service exists, needs real PDF/URL/YouTube hardening"},
+    {"id": "F3", "name": "Ingest PDF upload", "status": "STUB-OR-FAKE", "tests": 0, "notes": "No real PDF parser dependency; requires extracted text"},
+    {"id": "F4", "name": "Ingest article URL with SSRF block", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "SSRF guard exists with DNS resolution; no redirect validation or byte caps"},
+    {"id": "F5", "name": "Ingest YouTube video transcript", "status": "STUB-OR-FAKE", "tests": 0, "notes": "Hard-coded fallback transcript; no real transcript retrieval"},
+    {"id": "F6", "name": "Structured lesson generation", "status": "IMPLEMENTED-UNTESTED", "tests": 2, "notes": "Lesson engine exists; model IDs hard-coded; no startup model verification"},
+    {"id": "F7", "name": "Cards UI with save and library", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "Cards exist; no ratings/edits/source excerpts"},
+    {"id": "F8", "name": "Two-host audio via Gemini TTS", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "Gemini TTS integration; no real audio pipeline, no ffmpeg assembly"},
+    {"id": "F9", "name": "Audio player with card sync & seek", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "Frontend player exists; no authenticated streaming, no Range support"},
+    {"id": "F10", "name": "Device-TTS fallback", "status": "STUB-OR-FAKE", "tests": 0, "notes": "Toggle exists; no browser speechSynthesis API call"},
+    {"id": "F11", "name": "Content-hash cache before model calls", "status": "IMPLEMENTED-UNTESTED", "tests": 2, "notes": "Custom hash (not SHA-256); needs real SHA-256"},
+    {"id": "F12", "name": "Text practice with <= 30 words feedback", "status": "IMPLEMENTED-UNTESTED", "tests": 4, "notes": "Practice engine exists; 30-word cap enforced"},
+    {"id": "F13", "name": "Voice practice mode with barge-in", "status": "STUB-OR-FAKE", "tests": 0, "notes": "Voice mode toggle; no Live API integration"},
+    {"id": "F14", "name": "Timezone-correct streaks + freeze", "status": "IMPLEMENTED-UNTESTED", "tests": 3, "notes": "Retention engine exists; timezone-correct"},
+    {"id": "F15", "name": "Spaced-repetition review queue + Quiz", "status": "IMPLEMENTED-UNTESTED", "tests": 3, "notes": "SM-2 intervals; quiz generation exists"},
+    {"id": "F16", "name": "Daily caps and global kill switch", "status": "IMPLEMENTED-UNTESTED", "tests": 2, "notes": "Kill switch exists; in-memory only, not persisted"},
+    {"id": "F17", "name": "Options: 5/10/20m; TLDR, ELI5, Debate, Deep Dive", "status": "IMPLEMENTED-UNTESTED", "tests": 2, "notes": "Presets and styles exist"},
+    {"id": "F18", "name": "Deck export (Markdown, JSON, CSV)", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "Export engine exists; Anki CSV format"},
+    {"id": "F19", "name": "Tier gating (Free, Student, Pro, Team)", "status": "IMPLEMENTED-UNTESTED", "tests": 0, "notes": "Tier types exist; no real entitlement or payments"}
+  ],
+  "human_gates_open": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+  "next_layer": "C02"
+}

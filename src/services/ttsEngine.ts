@@ -3,7 +3,7 @@
  * Covers Requirements F8, F10.
  */
 
-import { GeminiService } from './gemini.ts';
+import { GeminiClient } from './gemini.ts';
 import { isDailySpendKillSwitchActive, TTS_PROVIDER_DUAL_HOST, type TtsProvider } from '../config/index.ts';
 import type { HostDialogueLine } from '../db/types.ts';
 
@@ -45,7 +45,8 @@ export class TtsEngine {
         text: line.text,
       }));
 
-      const result = await GeminiService.generateDualSpeakerTts(dialogue);
+      const client = new GeminiClient();
+      const result = await client.generateDualSpeakerTts(dialogue);
 
       return {
         audioUrl: `data:audio/wav;base64,${result.base64Wav}`,
@@ -127,5 +128,17 @@ export class TtsEngine {
       binaryStr += String.fromCharCode(combined[i]);
     }
     return btoa(binaryStr);
+  }
+
+  /**
+   * Estimates audio duration from word count (~140 words per minute).
+   * Used as a fallback when ffprobe is not available.
+   */
+  static measureAudioDuration(wavBuffer: Buffer): number {
+    // Approximate: WAV audio at 24kHz 16-bit mono, estimate duration from buffer size
+    // 24000 bytes per second for 16-bit mono (2 bytes * 24000 samples / 2 channels... actually 1 channel = 2 bytes/sample * 24000 samples/sec = 48000 bytes/sec)
+    const bytesPerSecond = 48000;
+    const estimatedSeconds = wavBuffer.length / bytesPerSecond;
+    return Math.max(5, Math.round(estimatedSeconds));
   }
 }

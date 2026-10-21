@@ -7,10 +7,10 @@
  * against their own material.
  */
 
-import { GeminiService } from './gemini.ts';
+import { createAIClient } from './aiClient.ts';
+import { MODELS } from '../config/index.ts';
 import { CacheService } from './cache.ts';
 import type { LessonSectionMarker } from '../db/types.ts';
-import { MODELS } from '../config/index.ts';
 
 export interface Citation {
   sectionId: string;
@@ -87,8 +87,10 @@ Answer the question using only the source sections above. Cite each claim with [
       required: ['answer', 'citations', 'confidence'],
     };
 
+    const aiClient = createAIClient();
+
     try {
-      const response = await GeminiService.generateStructuredJson<AskSourceResult & { citations: Citation[] }>({
+      const response = await aiClient.generateStructuredJson<AskSourceResult & { citations: Citation[] }>({
         systemInstruction,
         prompt,
         schema,
@@ -101,36 +103,10 @@ Answer the question using only the source sections above. Cite each claim with [
         confidence: response.data.confidence as 'high' | 'medium' | 'low',
       };
     } catch {
-      // Deterministic fallback: find the most relevant section by simple keyword overlap
-      const qWords = question.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-      const scored = sections.map((s) => {
-        const text = (s.title + ' ' + s.source_excerpt).toLowerCase();
-        const score = qWords.filter((w) => text.includes(w)).length;
-        return { section: s, score };
-      });
-      scored.sort((a, b) => b.score - a.score);
-      const best = scored[0];
-
-      if (!best || best.score === 0) {
-        return {
-          answer: `I couldn't find information about "${question}" in your source material. The source may not cover this topic.`,
-          citations: [],
-          confidence: 'low',
-        };
-      }
-
-      return {
-        answer: `Based on "${best.section.title}", the source states: ${best.section.source_excerpt.slice(0, 300)}...`,
-        citations: [
-          {
-            sectionId: best.section.id,
-            sectionTitle: best.section.title,
-            sourceExcerpt: best.section.source_excerpt,
-            relevance: 'Best matching section by keyword overlap (deterministic fallback).',
-          },
-        ],
-        confidence: 'medium',
-      };
+      // Fail closed: no fallback when AI generation fails
+      throw new Error(
+        'AI_GENERATION_FAILED: Could not answer question. AI client returned an error.'
+      );
     }
   }
 }

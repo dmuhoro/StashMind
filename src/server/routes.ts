@@ -20,80 +20,44 @@ import { handleTelegramUpdate, setWebhook, getMe } from '../services/telegram.ts
 import { AskSourceService } from '../services/askSource.ts';
 import { StudyModeService } from '../services/studyMode.ts';
 import { initiateStkPush, verifyMpesaCallback, MPESA_PRICING } from '../services/payments.ts';
-import { signTokenPair, verifyAccessToken, verifyRefreshToken, hashPassword, type TokenPayload } from '../services/auth.ts';
+import { authenticate, signup as authSignup, login as authLogin, logout as authLogout } from '../services/auth.ts';
+import { uploadAudio, deleteAudio, getAudioUrl, convertToOpus } from '../services/audioStorage.ts';
 import type { AudiencePreset, LessonStyle, LessonLengthMinutes } from '../config/index.ts';
+import { TABLES } from '../config/appwrite.ts';
 
 export const apiV1Router = Router();
 
-// Middleware to resolve authenticated user from Bearer JWT or API Key.
+// Middleware to resolve authenticated user from Appwrite JWT.
 // Fail closed: no demo-user fallback. Every request must present valid credentials.
 async function authenticateRequest(req: Request, res: Response, requiredScope?: ApiScope): Promise<string | null> {
   const authHeader = req.headers.authorization;
   const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   (req as unknown as { requestId: string }).requestId = requestId;
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.replace(/^Bearer\s+/, '').trim();
+  const user = await authenticate(authHeader);
+  if (!user) {
+    res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required. Provide a Bearer Appwrite session JWT.',
+        request_id: requestId,
+      },
+    });
+    return null;
+  }
 
-    // API Key authentication (stm_live_*)
-    if (token.startsWith('stm_')) {
-      const verification = await ApiKeyService.verifyKey(token, requiredScope);
-      if (!verification.valid || !verification.userId) {
-        res.status(401).json({
-          error: {
-            code: 'UNAUTHORIZED',
-            message: verification.error || 'Invalid API key.',
-            request_id: requestId,
-          },
-        });
-        return null;
-      }
-      return verification.userId;
-    }
-
-    // JWT access token authentication
-    try {
-      const payload = verifyAccessToken(token) as TokenPayload;
-      // Scope check for JWT holders: JWT implies lessons:read/write scope
-      if (requiredScope && !['lessons:read', 'lessons:write', 'cards:read', 'cards:write'].includes(requiredScope)) {
-        res.status(403).json({
-          error: { code: 'INSUFFICIENT_SCOPE', message: 'JWT holder lacks required scope.', request_id: requestId },
-        });
-        return null;
-      }
-      return payload.userId;
-    } catch {
-      res.status(401).json({
-        error: { code: 'UNAUTHORIZED', message: 'Invalid or expired access token.', request_id: requestId },
-      });
-      return null;
+  // Set user-scoped JWT on repository for AppwriteRepository (user permissions stay in force)
+  const repo = StashMindRepository.instance as any;
+  if (repo.setUserJwt) {
+    const endpoint = process.env.APPWRITE_ENDPOINT;
+    const projectId = process.env.APPWRITE_PROJECT_ID;
+    if (endpoint && projectId) {
+      repo.setUserJwt(authHeader.replace(/^Bearer\s+/, ''), endpoint, projectId);
     }
   }
 
-  // No credentials provided — fail closed
-  res.status(401).json({
-    error: {
-      code: 'MISSING_CREDENTIALS',
-      message: 'Authentication required. Provide a Bearer API key (stm_live_*) or JWT access token.',
-      request_id: requestId,
-    },
-  });
-  return null;
+  return user.userId;
 }
-
-// Pre-seed demo repository
-(async () => {
-  for (const item of SEED_LESSONS) {
-    await StashMindRepository.instance.saveLesson(item.lesson.user_id, item.lesson);
-    await StashMindRepository.instance.saveCards(item.lesson.user_id, item.cards);
-    // Pre-save first card to library
-    try {
-      await StashMindRepository.instance.saveCardToLibrary(item.lesson.user_id, item.cards[0].id);
-    } catch {
-      // ignore
-    }
-  }
-})();
 
 // --- OpenAPI Spec ---
 apiV1Router.get('/openapi.json', (_req: Request, res: Response) => {
@@ -109,9 +73,104 @@ apiV1Router.get('/health', (_req: Request, res: Response) => {
   });
 });
 
-// --- Auth: Signup ---
+// --- Readiness Check (checks Appwrite and required config) ---
+apiV1Router.get('/ready', async (_req: Request, res: Response) => {
+  const checks: Record<string, boolean> = {
+    appwrite_endpoint: !!process.env.APPWRITE_ENDPOINT,
+    appwrite_project: !!process.env.APPWRITE_PROJECT_ID,
+    appwrite_api_key: !!process.env.APPWRITE_API_KEY,
+    gemini_api_key: !!process.env.GEMINI_API_KEY,
+  };
+
+  const allHealthy = Object.values(checks).every(Boolean);
+
+  // Try Appwrite connection if configured
+  if (process.env.APPWRITE_ENDPOINT && process.env.APPWRITE_PROJECT_ID && process.env.APPWRITE_API_KEY) {
+    try {
+      const { getAdminDb } = await import('../services/appwriteClient.ts');
+      await getAdminDb().listDocuments((process.env.APPWRITE_DATABASE_ID || 'stashmind_db') as string, TABLES.PROFILES, [] as string[]);
+      checks.appwrite_reachable = true;
+    } catch {
+      checks.appwrite_reachable = false;
+    }
+  }
+
+  if (!allHealthy || !checks.appwrite_reachable) {
+    res.status(503).json({
+      status: 'not_ready',
+      checks,
+    });
+    return;
+  }
+
+  res.json({
+    status: 'ready',
+    checks,
+  });
+});
+
+// --- Audio Streaming (authenticated, Range support) ---
+apiV1Router.get('/audio/:fileId', async (req: Request, res: Response) => {
+  const userId = await authenticateRequest(req, res);
+  if (!userId) return;
+
+  const { fileId } = req.params;
+  const range = req.headers.range;
+
+  try {
+    const { getAdminStorage } = await import('../services/appwriteClient.ts');
+    const bucketId = process.env.APPWRITE_BUCKET_AUDIO || 'audio';
+
+    // Get file info
+    const file = await getAdminStorage().getFile(bucketId, fileId);
+    const fileSize = file.sizeOriginal;
+    const mimeType = file.mimeType;
+
+    if (!range) {
+      res.set({
+        'Content-Type': mimeType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.status(200).end();
+      return;
+    }
+
+    const rangeMatch = range.match(/bytes=(\d+)-(\d*)/);
+    const start = rangeMatch ? parseInt(rangeMatch[1], 10) : 0;
+    const end = rangeMatch ? (rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1) : fileSize - 1;
+    const chunkSize = end - start + 1;
+
+    // Download full file and stream the requested range (AppWrite getFileDownload returns a stream)
+    const fileStream = await getAdminStorage().getFileDownload(bucketId, fileId);
+    const chunks: Buffer[] = [];
+    for await (const chunk of fileStream as unknown as AsyncIterable<Buffer>) {
+      chunks.push(chunk);
+    }
+    const fullBuffer = Buffer.concat(chunks) as Buffer;
+    const chunkBuffer = fullBuffer.slice(start, end + 1);
+
+    res.set({
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': String(chunkSize),
+      'Content-Type': mimeType,
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.status(206).send(chunkBuffer);
+  } catch (e: any) {
+    if (e.code === 404) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Audio file not found.' } });
+    } else {
+      res.status(500).json({ error: { code: 'STREAM_FAILED', message: e.message } });
+    }
+  }
+});
+
+// --- Auth: Signup (Appwrite Auth) ---
 apiV1Router.post('/auth/signup', async (req: Request, res: Response) => {
-  const { email, password, display_name, audience_preset, timezone, age_confirmed } = req.body;
+  const { email, password, display_name, audience_preset, timezone, age_confirmed, gdpr } = req.body;
 
   if (!email || !password) {
     res.status(400).json({ error: { code: 'MISSING_FIELDS', message: 'Email and password are required.' } });
@@ -119,48 +178,35 @@ apiV1Router.post('/auth/signup', async (req: Request, res: Response) => {
   }
 
   // Age gate enforcement (Constitution: 13+ standard, 16+ GDPR)
-  if (age_confirmed !== true) {
-    res.status(403).json({
-      error: { code: 'AGE_GATE_REQUIRED', message: 'You must confirm you are 13+ (16+ under GDPR) to create an account.' },
+  const isGdpr = gdpr === true;
+  try {
+    const result = await authSignup(email, password, display_name || '', age_confirmed === true, isGdpr);
+
+    // Create profile in repository
+    const profile = await StashMindRepository.instance.upsertProfile(result.userId, {
+      email: result.email,
+      audience_preset: audience_preset || 'student',
+      timezone: timezone || 'UTC',
+      age_confirmed: true,
     });
-    return;
+
+    await StashMindRepository.instance.logAuditEvent(result.userId, 'auth.signup', 'user', result.userId, { email });
+
+    res.status(201).json({ user: profile, userId: result.userId, email: result.email });
+  } catch (e: any) {
+    if (e.message?.includes('AGE_GATE_REQUIRED')) {
+      res.status(403).json({ error: { code: 'AGE_GATE_REQUIRED', message: e.message } });
+      return;
+    }
+    if (e.message?.includes('already exists')) {
+      res.status(409).json({ error: { code: 'USER_EXISTS', message: 'An account with this email already exists.' } });
+      return;
+    }
+    res.status(500).json({ error: { code: 'SIGNUP_FAILED', message: e.message || 'Signup failed.' } });
   }
-
-  const existing = await StashMindRepository.instance.getProfileByEmail(email);
-  if (existing) {
-    res.status(409).json({ error: { code: 'USER_EXISTS', message: 'An account with this email already exists.' } });
-    return;
-  }
-
-  const userId = `user_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const now = new Date().toISOString();
-
-  const profile = await StashMindRepository.instance.upsertProfile(userId, {
-    email,
-    audience_preset: audience_preset || 'student',
-    timezone: timezone || 'UTC',
-    age_confirmed: true,
-  });
-
-  // Store hashed password on profile (in-memory; Supabase Auth in production)
-  await StashMindRepository.instance.upsertProfile(userId, {
-    ...profile,
-    password_hash: hashPassword(password),
-  } as any);
-
-  const tokens = signTokenPair({
-    userId,
-    email,
-    tier: profile.tier,
-    age_confirmed: true,
-  });
-
-  await StashMindRepository.instance.logAuditEvent(userId, 'auth.signup', 'user', userId, { email });
-
-  res.status(201).json({ user: profile, tokens });
 });
 
-// --- Auth: Login ---
+// --- Auth: Login (Appwrite Auth session) ---
 apiV1Router.post('/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
@@ -169,58 +215,36 @@ apiV1Router.post('/auth/login', async (req: Request, res: Response) => {
     return;
   }
 
-  const profile = await StashMindRepository.instance.getProfileByEmail(email);
-  if (!profile) {
-    res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
-    return;
-  }
-
-  const storedHash = (profile as any).password_hash;
-  if (!storedHash || storedHash !== hashPassword(password)) {
-    res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
-    return;
-  }
-
-  const tokens = signTokenPair({
-    userId: profile.user_id,
-    email: profile.email,
-    tier: profile.tier,
-    age_confirmed: profile.age_confirmed,
-  });
-
-  await StashMindRepository.instance.logAuditEvent(profile.user_id, 'auth.login', 'user', profile.user_id, { email });
-
-  res.json({ user: profile, tokens });
-});
-
-// --- Auth: Refresh ---
-apiV1Router.post('/auth/refresh', async (req: Request, res: Response) => {
-  const { refresh_token } = req.body;
-
-  if (!refresh_token) {
-    res.status(400).json({ error: { code: 'MISSING_TOKEN', message: 'Refresh token is required.' } });
-    return;
-  }
-
   try {
-    const { userId } = verifyRefreshToken(refresh_token);
-    const profile = await StashMindRepository.instance.getProfile(userId);
+    const result = await authLogin(email, password);
+
+    // Ensure profile exists in repository
+    let profile = await StashMindRepository.instance.getProfile(result.userId);
     if (!profile) {
-      res.status(401).json({ error: { code: 'USER_NOT_FOUND', message: 'User not found.' } });
-      return;
+      profile = await StashMindRepository.instance.upsertProfile(result.userId, {
+        email: result.email,
+        audience_preset: 'student',
+        timezone: 'UTC',
+        age_confirmed: true,
+      });
     }
 
-    const tokens = signTokenPair({
-      userId: profile.user_id,
-      email: profile.email,
-      tier: profile.tier,
-      age_confirmed: profile.age_confirmed,
-    });
+    await StashMindRepository.instance.logAuditEvent(result.userId, 'auth.login', 'user', result.userId, { email });
 
-    res.json({ tokens });
+    res.json({ user: profile, sessionId: result.sessionId, jwt: result.jwt });
   } catch {
-    res.status(401).json({ error: { code: 'INVALID_REFRESH_TOKEN', message: 'Invalid or expired refresh token.' } });
+    res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' } });
   }
+});
+
+// --- Auth: Logout ---
+apiV1Router.post('/auth/logout', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const sessionId = authHeader.replace(/^Bearer\s+/, '').trim();
+    await authLogout(sessionId);
+  }
+  res.json({ success: true });
 });
 
 // --- User Profile & Preset ---
@@ -365,8 +389,36 @@ apiV1Router.post('/lessons', async (req: Request, res: Response) => {
     // Synthesize audio
     const profile = await StashMindRepository.instance.getProfile(userId);
     const audioResult = await TtsEngine.synthesizeLessonAudio(lesson.script, profile?.data_saver ?? false);
-    lesson.audio_url = audioResult.audioUrl;
-    lesson.audio_duration_seconds = audioResult.audioDurationSeconds;
+
+    // Upload audio to AppWrite Storage (private bucket)
+    let audioFileId: string | null = null;
+    let audioDownloadUrl: string | null = null;
+    if (audioResult.base64Wav) {
+      const wavBuffer = Buffer.from(audioResult.base64Wav, 'base64');
+
+      // Data-saver: convert to low-bitrate Opus
+      let finalBuffer = wavBuffer;
+      let mimeType = 'audio/wav';
+      if (profile?.data_saver) {
+        const converted = await convertToOpus(wavBuffer, 32);
+        finalBuffer = Buffer.from(converted.buffer as unknown as Uint8Array);
+        mimeType = converted.mimeType;
+      }
+
+      const upload = await uploadAudio(finalBuffer, `${lesson.id}.${mimeType === 'audio/opus' ? 'opus' : 'wav'}`);
+      audioFileId = upload.fileId;
+      audioDownloadUrl = await getAudioUrl(upload.fileId);
+    }
+
+    lesson.audio_url = audioDownloadUrl || null;
+    lesson.audio_duration_seconds = await (
+      audioResult.base64Wav
+        ? (() => {
+            const wavBuffer = Buffer.from(audioResult.base64Wav, 'base64');
+            return TtsEngine.measureAudioDuration(wavBuffer);
+          })()
+        : audioResult.audioDurationSeconds
+    );
     lesson.tts_provider = audioResult.ttsProvider;
 
     await StashMindRepository.instance.saveLesson(userId, lesson);

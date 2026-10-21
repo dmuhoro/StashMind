@@ -100,8 +100,8 @@ export class AppwriteRepository implements Repository {
   }
 
   // --- Permission helpers ---
-  private userPerms() {
-    return [Permission.read('user'), Permission.write('user')];
+  private userPerms(userId?: string) {
+    return [Permission.read(userId ? 'user(' + userId + ')' : 'any'), Permission.write(userId ? 'user(' + userId + ')' : 'user')];
   }
 
   // --- Profiles ---
@@ -152,7 +152,7 @@ export class AppwriteRepository implements Repository {
         TABLES.PROFILES,
         ID.custom(userId),
         payload,
-        this.userPerms()
+        this.userPerms(userId)
       );
       return this.docToProfile(doc);
     }
@@ -161,7 +161,7 @@ export class AppwriteRepository implements Repository {
       TABLES.PROFILES,
       userId,
       payload,
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToProfile(updated);
   }
@@ -250,7 +250,7 @@ export class AppwriteRepository implements Repository {
       TABLES.LESSONS,
       lesson.id,
       payload,
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToLesson(doc);
   }
@@ -294,7 +294,7 @@ export class AppwriteRepository implements Repository {
         TABLES.CARDS,
         card.id,
         payload,
-        this.userPerms()
+        this.userPerms(userId)
       );
       saved.push(this.docToCard(doc));
     }
@@ -324,7 +324,7 @@ export class AppwriteRepository implements Repository {
       TABLES.CARDS,
       cardId,
       { rating },
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToCard(updated);
   }
@@ -349,7 +349,7 @@ export class AppwriteRepository implements Repository {
         edited: true,
         edited_at: new Date().toISOString(),
       },
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToCard(updated);
   }
@@ -383,7 +383,7 @@ export class AppwriteRepository implements Repository {
       TABLES.SAVED_CARDS,
       saved.id,
       payload,
-      this.userPerms()
+      this.userPerms(userId)
     );
     return saved;
   }
@@ -472,7 +472,7 @@ export class AppwriteRepository implements Repository {
       TABLES.PRACTICE_SESSIONS,
       session.id,
       payload,
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToPracticeSession(doc);
   }
@@ -501,7 +501,7 @@ export class AppwriteRepository implements Repository {
           TABLES.STREAKS,
           userId,
           streak,
-          this.userPerms()
+          this.userPerms(userId)
         );
         return streak;
       }
@@ -527,7 +527,7 @@ export class AppwriteRepository implements Repository {
         freeze_last_reset_week: streak.freeze_last_reset_week,
         updated_at: streak.updated_at,
       },
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToStreak(doc);
   }
@@ -562,7 +562,7 @@ export class AppwriteRepository implements Repository {
         last_reviewed_at: review.last_reviewed_at ?? null,
         created_at: review.created_at,
       },
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToSpacedReview(doc);
   }
@@ -591,7 +591,7 @@ export class AppwriteRepository implements Repository {
       TABLES.API_KEYS,
       record.id,
       record,
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToApiKey(doc);
   }
@@ -656,7 +656,7 @@ export class AppwriteRepository implements Repository {
       TABLES.WEBHOOKS,
       webhook.id,
       webhook,
-      this.userPerms()
+      this.userPerms(userId)
     );
     return this.docToWebhook(doc);
   }
@@ -691,7 +691,7 @@ export class AppwriteRepository implements Repository {
         details: JSON.stringify(details),
         created_at: new Date().toISOString(),
       },
-      this.userPerms()
+      this.userPerms(userId)
     );
   }
 
@@ -717,7 +717,7 @@ export class AppwriteRepository implements Repository {
       TABLES.USAGE_COUNTERS,
       counter.id,
       counter,
-      this.userPerms()
+      this.userPerms(userId)
     );
   }
 
